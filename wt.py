@@ -242,7 +242,7 @@ def add(type: str, time: str):
 
             timer.completed_minutes += minutes
         case "current" | "c":
-            timer.paused_minutes = +minutes
+            timer.paused_minutes += minutes
 
             if timer.status == Status.Running:
                 now = dt.now().strftime(DT_FORMAT)
