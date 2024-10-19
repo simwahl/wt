@@ -7,8 +7,11 @@ from enum import StrEnum
 import sys
 import os
 
-# TODO: Maybe store tmp file elsewhere to not lose on potential mid-day system reboot? /Users/Shared?? Nice if platform agnostic. Could also auto determine based on platform.
-TMP_FILE_PATH = "/tmp/wt"
+# Keep updated with .gitignore !
+OUTPUT_FOLDER = ".out"
+OUTPUT_FILE_NAME = "wt"
+OUTPUT_FILE_PATH = f"{OUTPUT_FOLDER}/{OUTPUT_FILE_NAME}"
+
 DT_FORMAT = "%Y-%m-%d %H-%M-%S"
 
 
@@ -93,7 +96,7 @@ def main():
 
 def start(start_time: str = None):
     timer = Timer()
-    if os.path.exists(TMP_FILE_PATH):
+    if os.path.exists(OUTPUT_FILE_PATH):
         timer = load()
 
     message = ""
@@ -286,7 +289,7 @@ def sub(time: str):
 
 def reset(msg: str = "Timer reset."):
     old_mode = None
-    if os.path.exists(TMP_FILE_PATH):
+    if os.path.exists(OUTPUT_FILE_PATH):
         old_timer = load()
         old_mode = old_timer.mode
 
@@ -310,12 +313,12 @@ def new():
 
 def remove():
     timer = load()
-    os.remove(TMP_FILE_PATH)
+    os.remove(OUTPUT_FILE_PATH)  # TODO: Maybe remove whole OUTPUT_FOLDER?
     print_message_if_not_silent(timer, "Timer removed.")
 
 
 def status():
-    if not os.path.exists(TMP_FILE_PATH):
+    if not os.path.exists(OUTPUT_FILE_PATH):
         print(Status.Stopped)
         return
     timer = load()
@@ -334,12 +337,12 @@ def mode_select(mode: Mode):
 
 
 def debug():
-    print(f"TMP_FILE_PATH = {TMP_FILE_PATH}\nDT_FORMAT = {DT_FORMAT}")
-    if os.path.exists(TMP_FILE_PATH):
+    print(f"OUTPUT_FILE_PATH = {OUTPUT_FILE_PATH}\nDT_FORMAT = {DT_FORMAT}")
+    if os.path.exists(OUTPUT_FILE_PATH):
         timer = load(debug=True)
         print(timer)
     else:
-        print(f"No file at {TMP_FILE_PATH}")
+        print(f"No file at {OUTPUT_FILE_PATH}")
 
 
 def print_help():
@@ -425,20 +428,23 @@ def calculate_current_minutes(timer: Timer) -> int:
 
 
 def save(timer: Timer):
+    if not os.path.exists(OUTPUT_FOLDER):
+        os.makedirs(OUTPUT_FOLDER)
+
     # CSV Format = status,startTime,pausedMinutes,totalMinutes,mode
-    with open(TMP_FILE_PATH, 'w') as file:
+    with open(OUTPUT_FILE_PATH, 'w') as file:
         file.write(f"{timer.status},{timer.start_datetime_str},{
                    timer.paused_minutes},{timer.completed_minutes},{timer.mode}")
 
 
 def load(debug: bool = False) -> Timer:
-    if not os.path.exists(TMP_FILE_PATH):
+    if not os.path.exists(OUTPUT_FILE_PATH):
         print("No timer exists.")
         quit()
 
     # CSV Format = status,startTime,pausedMinutes,totalMinutes,mode
     line = ""
-    with open(TMP_FILE_PATH, 'r') as file:
+    with open(OUTPUT_FILE_PATH, 'r') as file:
         line = file.readline().strip('\n')
 
     if debug:
