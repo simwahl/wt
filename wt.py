@@ -58,15 +58,15 @@ def main():
                 return
             set_timer(args[1], args[2])
         case "add":
-            if len(args) < 3:
+            if len(args) < 2:
                 print("Incorrect amount of arguments.")
                 return
-            add(args[1], args[2])
+            add(args[1])
         case "sub":
-            if len(args) < 3:
+            if len(args) < 2:
                 print("Incorrect amount of arguments.")
                 return
-            sub(args[1], args[2])
+            sub(args[1])
         case "reset":
             reset()
         case "new":
@@ -228,65 +228,60 @@ def set_timer(type: str, time: str):
     print_check_if_verbose(timer)
 
 
-def add(type: str, time: str):
+def add(time: str):
     timer = load()
-    validate_timer_type_or_quit(type)
     validate_timestring_or_quit(time)
     minutes = string_time_to_minutes(time)
 
-    match type:
-        case "total" | "t":
-            if timer.status != Status.Stopped:
-                print("Can only update total time when timer is stopped.")
-                return
+    type = "total" if timer.status == Status.Stopped else "current"
 
-            timer.completed_minutes += minutes
-        case "current" | "c":
-            timer.paused_minutes += minutes
-
-            if timer.status == Status.Running:
-                now = dt.now().strftime(DT_FORMAT)
-                timer.start_datetime_str = now
-
-            elif timer.status == Status.Stopped:
-                timer.status = Status.Paused
-
-        case _:
-            print(f"Unhandled type: {type}.")
+    if type == "total":
+        if timer.status != Status.Stopped:
+            print("Can only update total time when timer is stopped.")
             return
+
+        timer.completed_minutes += minutes
+
+    else:
+        timer.paused_minutes += minutes
+
+        if timer.status == Status.Running:
+            now = dt.now().strftime(DT_FORMAT)
+            timer.start_datetime_str = now
+
+        elif timer.status == Status.Stopped:
+            timer.status = Status.Paused
+
     save(timer)
 
 
-def sub(type: str, time: str):
+def sub(time: str):
     timer = load()
-    validate_timer_type_or_quit(type)
     validate_timestring_or_quit(time)
     minutes = string_time_to_minutes(time)
 
-    match type:
-        case "total" | "t":
-            if timer.status != Status.Stopped:
-                print("Can only update total time when timer is stopped.")
-                return
-            if timer.completed_minutes < minutes:
-                print("Cannot reduce total minutes to below 0.")
+    type = "total" if timer.status == Status.Stopped else "current"
 
-            timer.completed_minutes -= minutes
-        case "current" | "c":
-            if timer.paused_minutes < minutes:
-                print("Cannot reduce current minutes to below 0.")
-            timer.paused_minutes -= minutes
-
-            if timer.status == Status.Running:
-                now = dt.now().strftime(DT_FORMAT)
-                timer.start_datetime_str = now
-
-            elif timer.status == Status.Stopped:
-                timer.status = Status.Paused
-
-        case _:
-            print(f"Unhandled type: {type}.")
+    if type == "total":
+        if timer.status != Status.Stopped:
+            print("Can only update total time when timer is stopped.")
             return
+        if timer.completed_minutes < minutes:
+            print("Cannot reduce total minutes to below 0.")
+
+        timer.completed_minutes -= minutes
+
+    else:
+        if timer.paused_minutes < minutes:
+            print("Cannot reduce current minutes to below 0.")
+        timer.paused_minutes -= minutes
+
+        if timer.status == Status.Running:
+            now = dt.now().strftime(DT_FORMAT)
+            timer.start_datetime_str = now
+
+        elif timer.status == Status.Stopped:
+            timer.status = Status.Paused
 
     save(timer)
 
@@ -353,25 +348,34 @@ def print_help():
         
     Commands:
         start               Starts a new timer or continues paused timer.
+
         pause               Pauses currently running timer.
+        
         stop                Stops running or paused timer, sets total time,
                             and resets current time.
+        
         check <time>        Prints current and total time along with status.
                             Optionally add time to set.
                             Running wt without any command does the same.
+        
         set <type> <time>   Manually set total/current time using 1-4 digit
                             HHMM, HMM, MM, or M. Ex. wt set total 15 = 15min.
-        add <type> <time>   Add to current or total time. Same types and time
-                            format as Set command.
-        sub <type> <time>   Subtract to current or total time. Same types and
-                            time format as Set command.
-            types:
-                total / t
-                current / c
+                            types:
+                                total (t)
+                                current (c)        
+
+        add <time>          Add <time> to total if stopped, else current time.
+                            Same time format as Set command.    
+        
+        sub <time>          Subtract <time> to total if stopped, else current time.
+                            Same time format as Set command. 
 
         reset               Stops and sets current and total timers to zero.
+
         new                 Creates a new timer. Alias for "reset".
+
         remove              Deletes the timer and related file.
+
         mode <type>         Change output verbosity.
             types:
                 silent      Only prints errors (Default)
@@ -379,6 +383,7 @@ def print_help():
                 verbose     Normal + runs "check" command after other commands.
 
         help                Prints this help message.
+
         debug               Prints debug info.
 """)
 
