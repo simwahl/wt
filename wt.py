@@ -69,6 +69,8 @@ def main():
             sub(args[1])
         case "reset":
             reset()
+        case "restart":
+            restart()
         case "new":
             new()
         case "remove":
@@ -297,8 +299,13 @@ def reset(msg: str = "Timer reset."):
     print_check_if_verbose(timer)
 
 
+def restart():
+    reset()
+    start()
+
+
 def new():
-    reset("New timer initialized.")
+    reset()
 
 
 def remove():
@@ -368,6 +375,8 @@ def print_help():
 
         reset               Stops and sets current and total timers to zero.
 
+        restart             Reset and start new timer.
+  
         new                 Creates a new timer. Alias for "reset".
 
         remove              Deletes the timer and related file.
