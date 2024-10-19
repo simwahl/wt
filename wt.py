@@ -308,7 +308,7 @@ def restart():
 
 
 def new():
-    reset()
+    reset("New timer initialized.")
 
 
 def remove():
