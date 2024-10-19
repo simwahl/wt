@@ -53,17 +53,17 @@ def main():
         case "check":
             check()
         case "set":
-            if len(args) < 3:
+            if len(args) != 3:
                 print("Incorrect amount of arguments.")
                 return
             set_timer(args[1], args[2])
         case "add":
-            if len(args) < 2:
+            if len(args) != 2:
                 print("Incorrect amount of arguments.")
                 return
             add(args[1])
         case "sub":
-            if len(args) < 2:
+            if len(args) != 2:
                 print("Incorrect amount of arguments.")
                 return
             sub(args[1])
@@ -150,8 +150,7 @@ def pause():
         case Status.Stopped:
             print("Cannot pause stopped timer.")
         case Status.Running:
-            timer.paused_minutes += delta_minutes(dt.strptime(
-                timer.start_datetime_str, DT_FORMAT), dt.now())
+            timer.paused_minutes = calculate_current_minutes(timer)
             timer.start_datetime_str = ""
             timer.status = Status.Paused
             save(timer)
@@ -167,8 +166,7 @@ def check():
     running_minutes = 0
 
     if timer.status == Status.Running:
-        running_minutes = delta_minutes(dt.strptime(
-            timer.start_datetime_str, DT_FORMAT), dt.now()) + timer.paused_minutes
+        running_minutes = calculate_current_minutes(timer)
     elif timer.status == Status.Paused:
         running_minutes = timer.paused_minutes
 
@@ -263,25 +261,23 @@ def sub(time: str):
     type = "total" if timer.status == Status.Stopped else "current"
 
     if type == "total":
-        if timer.status != Status.Stopped:
-            print("Can only update total time when timer is stopped.")
-            return
         if timer.completed_minutes < minutes:
             print("Cannot reduce total minutes to below 0.")
+            return
 
         timer.completed_minutes -= minutes
 
     else:
-        if timer.paused_minutes < minutes:
+        new_current_minutes = calculate_current_minutes(timer) - minutes
+        if new_current_minutes < 0:
             print("Cannot reduce current minutes to below 0.")
+            return
+
         timer.paused_minutes -= minutes
 
         if timer.status == Status.Running:
             now = dt.now().strftime(DT_FORMAT)
             timer.start_datetime_str = now
-
-        elif timer.status == Status.Stopped:
-            timer.status = Status.Paused
 
     save(timer)
 
@@ -412,6 +408,11 @@ def total_with_paused_str(timer: Timer) -> str:
 
 def hour_minute_to_minutes(hours: int, minutes: int) -> int:
     return hours * 60 + minutes
+
+
+def calculate_current_minutes(timer: Timer) -> int:
+    return timer.paused_minutes + delta_minutes(dt.strptime(
+        timer.start_datetime_str, DT_FORMAT), dt.now())
 
 
 def save(timer: Timer):
