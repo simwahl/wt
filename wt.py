@@ -70,6 +70,8 @@ def main():
                 print("Incorrect amount of arguments.")
                 return
             sub(args[1])
+        case "next":
+            next_timer()
         case "reset":
             reset()
         case "restart":
@@ -287,6 +289,11 @@ def sub(time: str):
     save(timer)
 
 
+def next_timer():
+    stop()
+    start()
+
+
 def reset(msg: str = "Timer reset."):
     old_mode = None
     if os.path.exists(OUTPUT_FILE_PATH):
@@ -377,6 +384,8 @@ def print_help():
         
         sub <time>          Subtract <time> to total if stopped, else current time.
                             Same time format as Set command. 
+
+        next                Stop current timer and start next.
 
         reset               Stops and sets current and total timers to zero.
 
