@@ -291,6 +291,7 @@ def reset(msg: str = "Timer reset."):
     old_mode = None
     if os.path.exists(OUTPUT_FILE_PATH):
         old_timer = load()
+        yes_or_no_prompt("Reset timer?")
         old_mode = old_timer.mode
 
     timer = Timer()
@@ -313,6 +314,7 @@ def new():
 
 def remove():
     timer = load()
+    yes_or_no_prompt("Remove timer?")
     os.remove(OUTPUT_FILE_PATH)  # TODO: Maybe remove whole OUTPUT_FOLDER?
     print_message_if_not_silent(timer, "Timer removed.")
 
@@ -484,6 +486,13 @@ def print_check_if_verbose(timer: Timer):
 def validate_timer_type_or_quit(type: str):
     if type not in ["total", "current", "t", "c"]:
         print("Incorrect timer type. Should be 'total' or 'current'.")
+        quit()
+
+
+# Return if user input yes, else quit.
+def yes_or_no_prompt(msg: str):
+    answer = input(f"{msg} y / n [n]: ")
+    if answer.lower() != "y":
         quit()
 
 
