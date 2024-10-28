@@ -248,7 +248,7 @@ def add(time: str):
         timer.completed_minutes += minutes
 
     else:
-        timer.paused_minutes += minutes
+        timer.paused_minutes = calculate_current_minutes(timer) + minutes
 
         if timer.status == Status.Running:
             now = dt.now().strftime(DT_FORMAT)
@@ -280,7 +280,7 @@ def sub(time: str):
             print("Cannot reduce current minutes to below 0.")
             return
 
-        timer.paused_minutes -= minutes
+        timer.paused_minutes = new_current_minutes
 
         if timer.status == Status.Running:
             now = dt.now().strftime(DT_FORMAT)
