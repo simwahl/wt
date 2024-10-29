@@ -98,7 +98,7 @@ def main():
 
 def start(start_time: str = None):
     timer = Timer()
-    if os.path.exists(OUTPUT_FILE_PATH):
+    if os.path.exists(output_file()):
         timer = load()
 
     message = ""
@@ -296,7 +296,7 @@ def next_timer():
 
 def reset(msg: str = "Timer reset."):
     old_mode = None
-    if os.path.exists(OUTPUT_FILE_PATH):
+    if os.path.exists(output_file()):
         old_timer = load()
         yes_or_no_prompt("Reset timer?")
         old_mode = old_timer.mode
@@ -322,12 +322,13 @@ def new():
 def remove():
     timer = load()
     yes_or_no_prompt("Remove timer?")
-    os.remove(OUTPUT_FILE_PATH)  # TODO: Maybe remove whole OUTPUT_FOLDER?
+    # TODO: Maybe remove whole OUTPUT_FOLDER? Only .wt and not output root because it might break system?
+    os.remove(output_file())
     print_message_if_not_silent(timer, "Timer removed.")
 
 
 def status():
-    if not os.path.exists(OUTPUT_FILE_PATH):
+    if not os.path.exists(output_file()):
         print(Status.Stopped)
         return
     timer = load()
@@ -346,12 +347,12 @@ def mode_select(mode: Mode):
 
 
 def debug():
-    print(f"OUTPUT_FILE_PATH = {OUTPUT_FILE_PATH}\nDT_FORMAT = {DT_FORMAT}")
-    if os.path.exists(OUTPUT_FILE_PATH):
+    print(f"output_file() = {output_file()}\nDT_FORMAT = {DT_FORMAT}")
+    if os.path.exists(output_file()):
         timer = load(debug=True)
         print(timer)
     else:
-        print(f"No file at {OUTPUT_FILE_PATH}")
+        print(f"No file at {output_file()}")
 
 
 def print_help():
@@ -360,37 +361,37 @@ def print_help():
     work/break cycles. Total time is the sum of currently running/paused
     cycle and previously completed cycles. Cycles can also be thought
     of as laps in a traditional timer.
-        
+
     Commands:
         start               Starts a new timer or continues paused timer.
 
         pause               Pauses currently running timer.
-        
+
         stop                Stops running or paused timer, sets total time,
                             and resets current time.
-        
+
         check <time>        Prints current and total time along with status.
                             Optionally add time to set.
                             Running wt without any command does the same.
-        
+
         set <type> <time>   Manually set total/current time using 1-4 digit
                             HHMM, HMM, MM, or M. Ex. wt set total 15 = 15min.
                             types:
                                 total (t)
-                                current (c)        
+                                current (c)
 
         add <time>          Add <time> to total if stopped, else current time.
-                            Same time format as Set command.    
-        
+                            Same time format as Set command.
+
         sub <time>          Subtract <time> to total if stopped, else current time.
-                            Same time format as Set command. 
+                            Same time format as Set command.
 
         next                Stop current timer and start next.
 
         reset               Stops and sets current and total timers to zero.
 
         restart             Reset and start new timer.
-  
+
         new                 Creates a new timer. Alias for "reset".
 
         remove              Deletes the timer and related file.
@@ -443,19 +444,19 @@ def save(timer: Timer):
         os.makedirs(OUTPUT_FOLDER)
 
     # CSV Format = status,startTime,pausedMinutes,totalMinutes,mode
-    with open(OUTPUT_FILE_PATH, 'w') as file:
+    with open(output_file(), 'w') as file:
         file.write(f"{timer.status},{timer.start_datetime_str},{
                    timer.paused_minutes},{timer.completed_minutes},{timer.mode}")
 
 
 def load(debug: bool = False) -> Timer:
-    if not os.path.exists(OUTPUT_FILE_PATH):
+    if not os.path.exists(output_file()):
         print("No timer exists.")
         quit()
 
     # CSV Format = status,startTime,pausedMinutes,totalMinutes,mode
     line = ""
-    with open(OUTPUT_FILE_PATH, 'r') as file:
+    with open(output_file(), 'r') as file:
         line = file.readline().strip('\n')
 
     if debug:
@@ -509,6 +510,14 @@ def validate_timestring_or_quit(time: str):
     if len(time) < 1 or len(time) > 4 or not time.isdigit():
         print("Incorrect time format. Should be 1-4 digit HHMM.")
         quit()
+
+
+def output_file() -> str:
+    if "WT_ROOT" not in os.environ:
+        print("Env $WT_ROOT not set.")
+        quit()
+
+    return f"{os.environ['WT_ROOT']}/{OUTPUT_FILE_PATH}"
 
 
 if __name__ == "__main__":
