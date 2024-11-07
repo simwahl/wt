@@ -10,9 +10,11 @@ import os
 # Keep updated with .gitignore !
 OUTPUT_FOLDER = ".out"
 OUTPUT_FILE_NAME = "wt"
+OUTPUT_LOG_NAME = "log"
+OUTPUT_LOG_PATH = f"{OUTPUT_FOLDER}/{OUTPUT_LOG_NAME}"
 OUTPUT_FILE_PATH = f"{OUTPUT_FOLDER}/{OUTPUT_FILE_NAME}"
 
-DT_FORMAT = "%Y-%m-%d %H-%M-%S"
+DT_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
 class Status(StrEnum):
@@ -44,6 +46,8 @@ def main():
     if len(args) == 0:
         check()
         return
+    elif args[0] not in ["check", "log"]:
+        log(f"wt {" ".join(args)}")
 
     match args[0]:
         case "start":
@@ -55,6 +59,8 @@ def main():
             pause()
         case "check":
             check()
+        case "log":
+            history()
         case "set":
             if len(args) != 3:
                 print("Incorrect amount of arguments.")
@@ -98,7 +104,7 @@ def main():
 
 def start(start_time: str = None):
     timer = Timer()
-    if os.path.exists(output_file()):
+    if os.path.exists(output_file_path()):
         timer = load()
 
     message = ""
@@ -195,6 +201,14 @@ def check():
     total_str = hour_minute_str_from_minutes(total_minutes)
 
     print(f"{running_str} {status_str} (total {total_str})")
+
+
+def history():
+    load()  # Make sure there is a timer.
+    path = log_file_path()
+    with open(path, "r") as file:
+        for line in file:
+            print(line, end='')
 
 
 def set_timer(type: str, time: str):
@@ -296,11 +310,12 @@ def next_timer():
 
 def reset(msg: str = "Timer reset."):
     old_mode = None
-    if os.path.exists(output_file()):
+    if os.path.exists(output_file_path()):
         old_timer = load()
         yes_or_no_prompt("Reset timer?")
         old_mode = old_timer.mode
 
+    os.remove(log_file_path())
     timer = Timer()
     if old_mode:
         timer.mode = old_mode
@@ -323,12 +338,13 @@ def remove():
     timer = load()
     yes_or_no_prompt("Remove timer?")
     # TODO: Maybe remove whole OUTPUT_FOLDER? Only .wt and not output root because it might break system?
-    os.remove(output_file())
+    os.remove(output_file_path())
+    os.remove(log_file_path())
     print_message_if_not_silent(timer, "Timer removed.")
 
 
 def status():
-    if not os.path.exists(output_file()):
+    if not os.path.exists(output_file_path()):
         print(Status.Stopped)
         return
     timer = load()
@@ -347,12 +363,13 @@ def mode_select(mode: Mode):
 
 
 def debug():
-    print(f"output_file() = {output_file()}\nDT_FORMAT = {DT_FORMAT}")
-    if os.path.exists(output_file()):
+    path = output_file_path()
+    print(f"output_file_path() = {path}\nDT_FORMAT = {DT_FORMAT}")
+    if os.path.exists(output_file_path()):
         timer = load(debug=True)
         print(timer)
     else:
-        print(f"No file at {output_file()}")
+        print(f"No file at {output_file_path()}")
 
 
 def print_help():
@@ -444,19 +461,19 @@ def save(timer: Timer):
         os.makedirs(OUTPUT_FOLDER)
 
     # CSV Format = status,startTime,pausedMinutes,totalMinutes,mode
-    with open(output_file(), 'w') as file:
+    with open(output_file_path(), 'w') as file:
         file.write(f"{timer.status},{timer.start_datetime_str},{
                    timer.paused_minutes},{timer.completed_minutes},{timer.mode}")
 
 
 def load(debug: bool = False) -> Timer:
-    if not os.path.exists(output_file()):
+    if not os.path.exists(output_file_path()):
         print("No timer exists.")
         quit()
 
     # CSV Format = status,startTime,pausedMinutes,totalMinutes,mode
     line = ""
-    with open(output_file(), 'r') as file:
+    with open(output_file_path(), 'r') as file:
         line = file.readline().strip('\n')
 
     if debug:
@@ -512,12 +529,26 @@ def validate_timestring_or_quit(time: str):
         quit()
 
 
-def output_file() -> str:
+def output_file_path() -> str:
     if "WT_ROOT" not in os.environ:
         print("Env $WT_ROOT not set.")
         quit()
 
     return f"{os.environ['WT_ROOT']}/{OUTPUT_FILE_PATH}"
+
+
+def log_file_path() -> str:
+    if "WT_ROOT" not in os.environ:
+        print("Env $WT_ROOT not set.")
+        quit()
+
+    return f"{os.environ['WT_ROOT']}/{OUTPUT_LOG_PATH}"
+
+
+def log(msg: str):
+    timestamp = dt.now().strftime(DT_FORMAT)
+    with open(log_file_path(), "a") as file:
+        file.write(f"[{timestamp}] {msg}\n")
 
 
 if __name__ == "__main__":
