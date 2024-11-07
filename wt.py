@@ -363,15 +363,15 @@ def print_help():
     of as laps in a traditional timer.
 
     Commands:
-        start               Starts a new timer or continues paused timer.
+        start <time>        Starts a new timer or continues paused timer.
+                            Optionally add time to set.
 
         pause               Pauses currently running timer.
 
         stop                Stops running or paused timer, sets total time,
                             and resets current time.
 
-        check <time>        Prints current and total time along with status.
-                            Optionally add time to set.
+        check               Prints current and total time along with status.
                             Running wt without any command does the same.
 
         set <type> <time>   Manually set total/current time using 1-4 digit
