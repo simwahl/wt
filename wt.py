@@ -316,6 +316,8 @@ def reset(msg: str = "Timer reset."):
         old_mode = old_timer.mode
 
     os.remove(log_file_path())
+    open(log_file_path(), 'a').close()
+    
     timer = Timer()
     if old_mode:
         timer.mode = old_mode
