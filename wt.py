@@ -46,8 +46,8 @@ def main():
     if len(args) == 0:
         check()
         return
-    elif args[0] not in ["check", "log"]:
-        log(f"wt {" ".join(args)}")
+    elif args[0] not in ["check", "log", "status"]:
+        log(" ".join(args))
 
     match args[0]:
         case "start":
