@@ -46,8 +46,6 @@ def main():
     if len(args) == 0:
         check()
         return
-    elif args[0] not in ["check", "log", "status"]:
-        log(" ".join(args))
 
     match args[0]:
         case "start":
@@ -122,6 +120,8 @@ def start(start_time: str = None):
     prev_status = timer.status
     timer.status = Status.Running
 
+    start_time_log = f" {start_time}" if start_time != None else ""
+    log(f"start {start_time_log}")
     save(timer)
     print_message_if_not_silent(timer, message)
     print_check_if_verbose(timer)
@@ -148,6 +148,8 @@ def stop():
             timer.completed_minutes += timer.paused_minutes
             timer.paused_minutes = 0
             timer.status = Status.Stopped
+            
+            log("stop")
             save(timer)
             print_message_if_not_silent(timer, "Timer stopped.")
             print_check_if_verbose(timer)
@@ -166,6 +168,8 @@ def pause():
             timer.paused_minutes = calculate_current_minutes(timer)
             timer.start_datetime_str = ""
             timer.status = Status.Paused
+            
+            log("pause")
             save(timer)
             print_message_if_not_silent(timer, "Timer paused.")
             print_check_if_verbose(timer)
@@ -242,6 +246,7 @@ def set_timer(type: str, time: str):
             print(f"Unhandled type: {type}.")
             return
 
+    log(f"set {type} {time}")
     save(timer)
     print_message_if_not_silent(timer, "Timer set.")
     print_check_if_verbose(timer)
@@ -271,6 +276,7 @@ def add(time: str):
         elif timer.status == Status.Stopped:
             timer.status = Status.Paused
 
+    log(f"add {time}")
     save(timer)
 
 
@@ -300,6 +306,7 @@ def sub(time: str):
             now = dt.now().strftime(DT_FORMAT)
             timer.start_datetime_str = now
 
+    log(f"sub {time}")
     save(timer)
 
 
