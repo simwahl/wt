@@ -322,7 +322,12 @@ def reset(msg: str = "Timer reset."):
         yes_or_no_prompt("Reset timer?")
         old_mode = old_timer.mode
 
-    os.remove(log_file_path())
+    output_folder = output_folder_path()
+    if os.path.exists(output_folder):
+        os.rmdir(output_folder)
+    
+    os.mkdir(output_folder)
+
     open(log_file_path(), 'a').close()
     
     timer = Timer()
@@ -539,19 +544,23 @@ def validate_timestring_or_quit(time: str):
 
 
 def output_file_path() -> str:
-    if "WT_ROOT" not in os.environ:
-        print("Env $WT_ROOT not set.")
-        quit()
-
-    return f"{os.environ['WT_ROOT']}/{OUTPUT_FILE_PATH}"
+    return f"{project_root_path()}/{OUTPUT_FILE_PATH}"
 
 
 def log_file_path() -> str:
+    return f"{project_root_path()}/{OUTPUT_LOG_PATH}"
+
+
+def project_root_path() -> str:
     if "WT_ROOT" not in os.environ:
         print("Env $WT_ROOT not set.")
         quit()
+    
+    return os.environ['WT_ROOT']
 
-    return f"{os.environ['WT_ROOT']}/{OUTPUT_LOG_PATH}"
+
+def output_folder_path() -> str:
+    return f"{project_root_path()}/{OUTPUT_FOLDER}"
 
 
 def log(msg: str):
