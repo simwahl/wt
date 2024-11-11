@@ -6,6 +6,7 @@ from datetime import datetime as dt
 from enum import StrEnum
 import sys
 import os
+import shutil
 
 # Keep updated with .gitignore !
 OUTPUT_FOLDER = ".out"
@@ -324,7 +325,7 @@ def reset(msg: str = "Timer reset."):
 
     output_folder = output_folder_path()
     if os.path.exists(output_folder):
-        os.rmdir(output_folder)
+        shutil.rmtree(output_folder)
     
     os.mkdir(output_folder)
 
