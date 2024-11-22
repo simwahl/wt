@@ -58,8 +58,6 @@ def main():
             pause()
         case "check":
             check()
-        case "log":
-            history()
         case "set":
             if len(args) != 3:
                 print("Incorrect amount of arguments.")
@@ -75,6 +73,8 @@ def main():
                 print("Incorrect amount of arguments.")
                 return
             sub(args[1])
+        case "log":
+            history()
         case "next":
             next_timer()
         case "reset":
@@ -422,6 +422,9 @@ def print_help():
 
         sub <time>          Subtract <time> to total if stopped, else current time.
                             Same time format as Set command.
+
+        log                 Show log of successfully run commands which
+                            impacted the timer.
 
         next                Stop current timer and start next.
 
