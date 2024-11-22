@@ -30,6 +30,11 @@ class Mode(StrEnum):
     Verbose = "verbose"
 
 
+class LogType(StrEnum):
+    INFO = "INF"
+    COMMAND = "CMD"
+
+
 class Timer():
     def __init__(self, status=Status.Stopped, start="", stop="", pausedTime=0, totalTime=0, mode=Mode.Silent):
         self.status: Status = status
@@ -131,9 +136,9 @@ def start(start_time: str = None):
     timer.status = Status.Running
 
     start_time_log = f" {start_time}" if start_time != None else ""
-    log(f"start{start_time_log}")
+    log(LogType.COMMAND, f"wt start{start_time_log}")
     if break_time_str != "":
-        log(f"<< Timer started again after: {break_time_str} >>")
+        log(LogType.INFO, f"Timer started again after: {break_time_str}")
 
     save(timer)
     print_message_if_not_silent(timer, message)
@@ -165,10 +170,10 @@ def stop():
             timer.paused_minutes = 0
             timer.status = Status.Stopped
 
-            log("stop")
+            log(LogType.COMMAND, "wt stop")
             cycle_str = mintues_to_hour_minute_str(cycle_minutes)
             total_str = mintues_to_hour_minute_str(timer.completed_minutes)
-            log(f"<< Completed cycle: {cycle_str} ({total_str}) >>")
+            log(LogType.INFO, f"Completed cycle: {cycle_str} ({total_str})")
             save(timer)
             print_message_if_not_silent(timer, "Timer stopped.")
             print_check_if_verbose(timer)
@@ -266,7 +271,7 @@ def set_timer(type: str, time: str, should_log: bool = True):
             return
 
     if should_log:
-        log(f"set {type} {time}")
+        log(LogType.COMMAND, f"wt set {type} {time}")
 
     save(timer)
     print_message_if_not_silent(timer, "Timer set.")
@@ -297,7 +302,7 @@ def add(time: str):
         elif timer.status == Status.Stopped:
             timer.status = Status.Paused
 
-    log(f"add {time}")
+    log(LogType.COMMAND, f"wt add {time}")
     save(timer)
 
 
@@ -327,7 +332,7 @@ def sub(time: str):
             now = dt.now().strftime(DT_FORMAT)
             timer.start_datetime_str = now
 
-    log(f"sub {time}")
+    log(LogType.COMMAND, f"wt sub {time}")
     save(timer)
 
 
@@ -593,10 +598,10 @@ def mintues_to_hour_minute_str(mins: int) -> str:
     return f"{h}h:{m:02d}m"
 
 
-def log(msg: str):
+def log(type: LogType,  msg: str):
     timestamp = dt.now().strftime(DT_FORMAT)
     with open(log_file_path(), "a") as file:
-        file.write(f"[{timestamp}] {msg}\n")
+        file.write(f"[{timestamp}] [{type}] {msg}\n")
 
 
 if __name__ == "__main__":
