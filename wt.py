@@ -7,6 +7,7 @@ from enum import StrEnum
 import sys
 import os
 import shutil
+import re
 
 # Keep updated with .gitignore !
 OUTPUT_FOLDER = ".out"
@@ -80,7 +81,8 @@ def main():
                 return
             sub(args[1])
         case "log":
-            history()
+            log_type = None if len(args) < 2 else args[1]
+            history(log_type)
         case "next":
             next_timer()
         case "reset":
@@ -138,7 +140,7 @@ def start(start_time: str = None):
     start_time_log = f" {start_time}" if start_time != None else ""
     log(LogType.COMMAND, f"wt start{start_time_log}")
     if break_time_str != "":
-        log(LogType.INFO, f"Timer started again after: {break_time_str}")
+        log(LogType.INFO, f"Started again after: {break_time_str}")
 
     save(timer)
     print_message_if_not_silent(timer, message)
@@ -193,7 +195,7 @@ def pause():
             timer.start_datetime_str = ""
             timer.status = Status.Paused
 
-            log("pause")
+            log(LogType.COMMAND, "wt pause")
             save(timer)
             print_message_if_not_silent(timer, "Timer paused.")
             print_check_if_verbose(timer)
@@ -231,11 +233,20 @@ def check():
     print(f"{running_str} {status_str} (total {total_str})")
 
 
-def history():
+def history(log_type: LogType = None):
+    if log_type != None and log_type not in ["info", "cmd"]:
+        print(f"invalid log type filter: {log_type}")
+        quit()
+
     load()  # Make sure there is a timer.
     path = log_file_path()
     with open(path, "r") as file:
         for line in file:
+            if log_type:
+                lt = log_type_from_log_line(line)
+                if (lt == LogType.INFO and log_type != "info") or (lt == LogType.COMMAND and log_type != "cmd"):
+                    continue
+
             print(line, end='')
 
 
@@ -443,8 +454,11 @@ def print_help():
         sub <time>          Subtract <time> to total if stopped, else current time.
                             Same time format as Set command.
 
-        log                 Show log of successfully run commands which
-                            impacted the timer.
+        log <type>          Show log of successfully run commands which impacted
+                            the timer. Optionally filter logs by type.
+            types:
+                info        Only prints info logs
+                cmd         Only prints logs of commands
 
         next                Stop current timer and start next.
 
@@ -598,10 +612,26 @@ def mintues_to_hour_minute_str(mins: int) -> str:
     return f"{h}h:{m:02d}m"
 
 
-def log(type: LogType,  msg: str):
+def log(log_type: LogType,  msg: str):
     timestamp = dt.now().strftime(DT_FORMAT)
     with open(log_file_path(), "a") as file:
-        file.write(f"[{timestamp}] [{type}] {msg}\n")
+        file.write(f"[{timestamp}] [{log_type}] {msg}\n")
+
+
+def log_type_from_log_line(line: str) -> LogType:
+    pattern = re.compile("\\] \\[(.*?)\\]")
+    res = pattern.findall(line)
+    if len(res) != 1:
+        print(f"Issue extracting log type from: {line}")
+        quit()
+
+    try:
+        t = LogType(res[0])
+        return t
+    except:
+        print(f"Issue extracting log type from: {line}")
+        print(f"Invalid log type: {res[0]}")
+        quit()
 
 
 if __name__ == "__main__":
