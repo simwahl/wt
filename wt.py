@@ -80,7 +80,8 @@ def main():
         case "reset":
             reset()
         case "restart":
-            restart()
+            start_time = None if len(args) < 2 else args[1]
+            restart(start_time)
         case "new":
             new()
         case "remove":
@@ -122,7 +123,7 @@ def start(start_time: str = None):
     timer.status = Status.Running
 
     start_time_log = f" {start_time}" if start_time != None else ""
-    log(f"start {start_time_log}")
+    log(f"start{start_time_log}")
     save(timer)
     print_message_if_not_silent(timer, message)
     print_check_if_verbose(timer)
@@ -345,9 +346,9 @@ def reset(msg: str = "Timer reset."):
     print_check_if_verbose(timer)
 
 
-def restart():
+def restart(start_time: str):
     reset()
-    start()
+    start(start_time)
 
 
 def new():
@@ -430,7 +431,7 @@ def print_help():
 
         reset               Stops and sets current and total timers to zero.
 
-        restart             Reset and start new timer.
+        restart <time>      Reset and start new timer. Optionally add time to set.
 
         new                 Creates a new timer. Alias for "reset".
 
