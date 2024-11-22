@@ -31,15 +31,16 @@ class Mode(StrEnum):
 
 
 class Timer():
-    def __init__(self, status=Status.Stopped, start="", pausedTime=0, totalTime=0, mode=Mode.Silent):
+    def __init__(self, status=Status.Stopped, start="", stop="", pausedTime=0, totalTime=0, mode=Mode.Silent):
         self.status: Status = status
         self.start_datetime_str: str = start
+        self.stop_datetime_str: str = stop
         self.paused_minutes: int = pausedTime
         self.completed_minutes: int = totalTime
         self.mode: Mode = mode
 
     def __str__(self):
-        return f"status = {self.status}\nstart_datetime = {self.start_datetime_str}\npaused_minutes = {self.paused_minutes}\ncompleted_minutes = {self.completed_minutes}\nmode = {self.mode}"
+        return f"status = {self.status}\nstart_datetime = {self.start_datetime_str}\nstop_datetime = {self.stop_datetime_str}\npaused_minutes = {self.paused_minutes}\ncompleted_minutes = {self.completed_minutes}\nmode = {self.mode}"
 
 
 def main():
@@ -117,6 +118,13 @@ def start(start_time: str = None):
         case Status.Stopped:
             message = "Starting timer."
 
+    break_time_str = ""
+    if timer.stop_datetime_str != "":
+        break_mins = delta_minutes(
+            dt.strptime(timer.stop_datetime_str, DT_FORMAT), dt.now())
+        break_time_str = mintues_to_hour_minute_str(break_mins)
+
+    timer.stop_datetime_str = ""
     now = dt.now().strftime(DT_FORMAT)
     timer.start_datetime_str = now
     prev_status = timer.status
@@ -124,6 +132,9 @@ def start(start_time: str = None):
 
     start_time_log = f" {start_time}" if start_time != None else ""
     log(f"start{start_time_log}")
+    if break_time_str != "":
+        log(f"<< Timer started again after: {break_time_str} >>")
+
     save(timer)
     print_message_if_not_silent(timer, message)
     print_check_if_verbose(timer)
@@ -147,6 +158,7 @@ def stop():
                 cycle_minutes += delta_minutes(
                     dt.strptime(timer.start_datetime_str, DT_FORMAT), dt.now())
 
+            timer.stop_datetime_str = dt.now().strftime(DT_FORMAT)
             timer.start_datetime_str = ""
             cycle_minutes += timer.paused_minutes
             timer.completed_minutes += cycle_minutes
@@ -486,9 +498,9 @@ def save(timer: Timer):
     if not os.path.exists(OUTPUT_FOLDER):
         os.makedirs(OUTPUT_FOLDER)
 
-    # CSV Format = status,startTime,pausedMinutes,totalMinutes,mode
+    # CSV Format = status,startTime,stopTime,pausedMinutes,totalMinutes,mode
     with open(output_file_path(), 'w') as file:
-        file.write(f"{timer.status},{timer.start_datetime_str},{
+        file.write(f"{timer.status},{timer.start_datetime_str},{timer.stop_datetime_str},{
                    timer.paused_minutes},{timer.completed_minutes},{timer.mode}")
 
 
@@ -497,7 +509,7 @@ def load(debug: bool = False) -> Timer:
         print("No timer exists.")
         quit()
 
-    # CSV Format = status,startTime,pausedMinutes,totalMinutes,mode
+    # CSV Format = status,startTime,stopTime,pausedMinutes,totalMinutes,mode
     line = ""
     with open(output_file_path(), 'r') as file:
         line = file.readline().strip('\n')
@@ -507,7 +519,7 @@ def load(debug: bool = False) -> Timer:
 
     csv = line.split(",")
 
-    return Timer(Status(csv[0]), csv[1], int(csv[2]), int(csv[3]), csv[4])
+    return Timer(Status(csv[0]), csv[1], csv[2], int(csv[3]), int(csv[4]), csv[5])
 
 
 def string_time_to_minutes(time: str) -> int:
