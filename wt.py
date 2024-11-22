@@ -137,20 +137,25 @@ def start(start_time: str = None):
 
 def stop():
     timer = load()
+    cycle_minutes = 0
     match timer.status:
         case Status.Stopped:
             print("Timer already stopped.")
         case Status.Running | Status.Paused:
             if timer.status == Status.Running:
-                timer.completed_minutes += delta_minutes(
+                cycle_minutes += delta_minutes(
                     dt.strptime(timer.start_datetime_str, DT_FORMAT), dt.now())
 
             timer.start_datetime_str = ""
-            timer.completed_minutes += timer.paused_minutes
+            cycle_minutes += timer.paused_minutes
+            timer.completed_minutes += cycle_minutes
             timer.paused_minutes = 0
             timer.status = Status.Stopped
-            
+
             log("stop")
+            cycle_str = mintues_to_hour_minute_str(cycle_minutes)
+            total_str = mintues_to_hour_minute_str(timer.completed_minutes)
+            log(f"Completed cycle: {cycle_str} ({total_str})")
             save(timer)
             print_message_if_not_silent(timer, "Timer stopped.")
             print_check_if_verbose(timer)
@@ -169,7 +174,7 @@ def pause():
             timer.paused_minutes = calculate_current_minutes(timer)
             timer.start_datetime_str = ""
             timer.status = Status.Paused
-            
+
             log("pause")
             save(timer)
             print_message_if_not_silent(timer, "Timer paused.")
@@ -326,11 +331,11 @@ def reset(msg: str = "Timer reset."):
     output_folder = output_folder_path()
     if os.path.exists(output_folder):
         shutil.rmtree(output_folder)
-    
+
     os.mkdir(output_folder)
 
     open(log_file_path(), 'a').close()
-    
+
     timer = Timer()
     if old_mode:
         timer.mode = old_mode
@@ -556,12 +561,18 @@ def project_root_path() -> str:
     if "WT_ROOT" not in os.environ:
         print("Env $WT_ROOT not set.")
         quit()
-    
+
     return os.environ['WT_ROOT']
 
 
 def output_folder_path() -> str:
     return f"{project_root_path()}/{OUTPUT_FOLDER}"
+
+
+def mintues_to_hour_minute_str(mins: int) -> str:
+    h = mins//60
+    m = mins % 60
+    return f"{h}h:{m:02d}m"
 
 
 def log(msg: str):
