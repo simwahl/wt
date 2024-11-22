@@ -133,7 +133,7 @@ def start(start_time: str = None):
             print("Can only set start time if stopped")
             return
         else:
-            set_timer("current", start_time)
+            set_timer("current", start_time, False)
 
 
 def stop():
@@ -222,7 +222,7 @@ def history():
             print(line, end='')
 
 
-def set_timer(type: str, time: str):
+def set_timer(type: str, time: str, should_log: bool = True):
     timer = load()
     validate_timer_type_or_quit(type)
     validate_timestring_or_quit(time)
@@ -253,7 +253,9 @@ def set_timer(type: str, time: str):
             print(f"Unhandled type: {type}.")
             return
 
-    log(f"set {type} {time}")
+    if should_log:
+        log(f"set {type} {time}")
+
     save(timer)
     print_message_if_not_silent(timer, "Timer set.")
     print_check_if_verbose(timer)
