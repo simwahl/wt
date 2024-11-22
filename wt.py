@@ -156,7 +156,7 @@ def stop():
             log("stop")
             cycle_str = mintues_to_hour_minute_str(cycle_minutes)
             total_str = mintues_to_hour_minute_str(timer.completed_minutes)
-            log(f"Completed cycle: {cycle_str} ({total_str})")
+            log(f"<< Completed cycle: {cycle_str} ({total_str}) >>")
             save(timer)
             print_message_if_not_silent(timer, "Timer stopped.")
             print_check_if_verbose(timer)
