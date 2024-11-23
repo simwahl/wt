@@ -432,7 +432,7 @@ def print_help():
     of as laps in a traditional timer.
 
     Commands:
-        start <time>        Starts a new timer or continues paused timer.
+        start [time]        Starts a new timer or continues paused timer.
                             Optionally add time to set.
 
         pause               Pauses currently running timer.
@@ -455,7 +455,7 @@ def print_help():
         sub <time>          Subtract <time> to total if stopped, else current time.
                             Same time format as Set command.
 
-        log <type>          Show log of successfully run commands which impacted
+        log [type]          Show log of successfully run commands which impacted
                             the timer. Optionally filter logs by type.
             types:
                 info        Only prints info logs
@@ -465,7 +465,7 @@ def print_help():
 
         reset               Stops and sets current and total timers to zero.
 
-        restart <time>      Reset and start new timer. Optionally add time to set.
+        restart [time]      Reset and start new timer. Optionally add time to set.
 
         new                 Creates a new timer. Alias for "reset".
 
