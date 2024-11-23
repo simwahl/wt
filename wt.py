@@ -234,8 +234,9 @@ def check():
 
 
 def history(log_type: LogType = None):
-    if log_type != None and log_type not in ["info", "cmd"]:
-        print(f"invalid log type filter: {log_type}")
+    filters = ["info", "cmd"]
+    if log_type != None and log_type not in filters:
+        print(f"Invalid log type filter: {log_type}. Use one of: {filters}")
         quit()
 
     load()  # Make sure there is a timer.
