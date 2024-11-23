@@ -112,6 +112,7 @@ def main():
 
 def start(start_time: str = None):
     timer = Timer()
+    validate_timestring_or_quit(start_time)
     if os.path.exists(output_file_path()):
         timer = load()
 
@@ -378,6 +379,7 @@ def reset(msg: str = "Timer reset."):
 
 
 def restart(start_time: str):
+    validate_timestring_or_quit(start_time)
     reset()
     start(start_time)
 
@@ -585,6 +587,12 @@ def validate_timestring_or_quit(time: str):
     if len(time) < 1 or len(time) > 4 or not time.isdigit():
         print("Incorrect time format. Should be 1-4 digit HHMM.")
         quit()
+
+    if len(time) >= 2:
+        minutes = int(time[-2:])
+        if minutes > 59:
+            print(f"Time string minutes are greater than 59. Increase hours instead.")
+            quit()
 
 
 def output_file_path() -> str:
