@@ -8,10 +8,11 @@ import sys
 import os
 import shutil
 import re
+import json
 
 # Keep updated with .gitignore !
 OUTPUT_FOLDER = ".out"
-OUTPUT_FILE_NAME = "wt"
+OUTPUT_FILE_NAME = "wt.json"
 OUTPUT_LOG_NAME = "log"
 OUTPUT_LOG_PATH = f"{OUTPUT_FOLDER}/{OUTPUT_LOG_NAME}"
 OUTPUT_FILE_PATH = f"{OUTPUT_FOLDER}/{OUTPUT_FILE_NAME}"
@@ -424,7 +425,7 @@ def debug():
     path = output_file_path()
     print(f"output_file_path() = {path}\nDT_FORMAT = {DT_FORMAT}")
     if os.path.exists(output_file_path()):
-        timer = load(debug=True)
+        timer = load()
         print(timer)
     else:
         print(f"No file at {output_file_path()}")
@@ -524,28 +525,36 @@ def save(timer: Timer):
     if not os.path.exists(OUTPUT_FOLDER):
         os.makedirs(OUTPUT_FOLDER)
 
-    # CSV Format = status,startTime,stopTime,pausedMinutes,totalMinutes,mode
-    with open(output_file_path(), 'w') as file:
-        file.write(f"{timer.status},{timer.start_datetime_str},{timer.stop_datetime_str},{
-                   timer.paused_minutes},{timer.completed_minutes},{timer.mode}")
+    data = {
+        "status": timer.status,
+        "start_datetime_str": timer.start_datetime_str,
+        "stop_datetime_str": timer.stop_datetime_str,
+        "paused_minutes": timer.paused_minutes,
+        "completed_minutes": timer.completed_minutes,
+        "mode": timer.mode,
+    }
+
+    json_obj = json.dumps(data, indent=4)
+
+    with open(output_file_path(), "w") as file:
+        file.write(json_obj)
 
 
-def load(debug: bool = False) -> Timer:
+def load() -> Timer:
     if not os.path.exists(output_file_path()):
         print("No timer exists.")
         quit()
 
-    # CSV Format = status,startTime,stopTime,pausedMinutes,totalMinutes,mode
-    line = ""
-    with open(output_file_path(), 'r') as file:
-        line = file.readline().strip('\n')
+    with open(output_file_path(), "r") as file:
+        data = json.load(file)
 
-    if debug:
-        print(f'CSV = "{line}"')
-
-    csv = line.split(",")
-
-    return Timer(Status(csv[0]), csv[1], csv[2], int(csv[3]), int(csv[4]), csv[5])
+    return Timer(
+        Status(data["status"]),
+        data["start_datetime_str"],
+        data["start_datetime_str"],
+        data["paused_minutes"],
+        data["completed_minutes"],
+        data["mode"])
 
 
 def string_time_to_minutes(time: str) -> int:
