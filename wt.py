@@ -112,7 +112,10 @@ def main():
 
 def start(start_time: str = None):
     timer = Timer()
-    validate_timestring_or_quit(start_time)
+
+    if start_time:
+        validate_timestring_or_quit(start_time)
+
     if os.path.exists(output_file_path()):
         timer = load()
 
@@ -379,7 +382,8 @@ def reset(msg: str = "Timer reset."):
 
 
 def restart(start_time: str):
-    validate_timestring_or_quit(start_time)
+    if start_time:
+        validate_timestring_or_quit(start_time)
     reset()
     start(start_time)
 
