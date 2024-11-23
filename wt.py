@@ -4,6 +4,7 @@
 
 from datetime import datetime as dt
 from enum import StrEnum
+from typing import List
 import sys
 import os
 import shutil
@@ -38,16 +39,33 @@ class LogType(StrEnum):
 
 
 class Timer():
-    def __init__(self, status=Status.Stopped, start="", stop="", pausedTime=0, totalTime=0, mode=Mode.Silent):
+    def __init__(
+            self,
+            status=Status.Stopped,
+            start="", stop="", pausedTime=0,
+            totalTime=0, mode=Mode.Silent,
+            cycle_minutes=[],
+            break_minutes=[]):
         self.status: Status = status
         self.start_datetime_str: str = start
         self.stop_datetime_str: str = stop
         self.paused_minutes: int = pausedTime
         self.completed_minutes: int = totalTime
         self.mode: Mode = mode
+        self.completed_cycle_minutes: List[int] = cycle_minutes
+        self.break_minutes: List[int] = break_minutes
 
     def __str__(self):
-        return f"status = {self.status}\nstart_datetime = {self.start_datetime_str}\nstop_datetime = {self.stop_datetime_str}\npaused_minutes = {self.paused_minutes}\ncompleted_minutes = {self.completed_minutes}\nmode = {self.mode}"
+        return (
+            f"status = {self.status}\n"
+            f"start_datetime_sr = {self.start_datetime_str}\n"
+            f"stop_datetime_str = {self.stop_datetime_str}\n"
+            f"paused_minutes = {self.paused_minutes}\n"
+            f"completed_minutes = {self.completed_minutes}\n"
+            f"mode = {self.mode}\n"
+            f"completed_cycle_minutes = {self.completed_cycle_minutes}\n"
+            f"break_minutes = {self.break_minutes}\n"
+        )
 
 
 def main():
@@ -134,6 +152,7 @@ def start(start_time: str = None):
     if timer.stop_datetime_str != "":
         break_mins = delta_minutes(
             dt.strptime(timer.stop_datetime_str, DT_FORMAT), dt.now())
+        timer.break_minutes.append(break_mins)
         break_time_str = mintues_to_hour_minute_str(break_mins)
 
     timer.stop_datetime_str = ""
@@ -174,6 +193,7 @@ def stop():
             timer.start_datetime_str = ""
             cycle_minutes += timer.paused_minutes
             timer.completed_minutes += cycle_minutes
+            timer.completed_cycle_minutes.append(cycle_minutes)
             timer.paused_minutes = 0
             timer.status = Status.Stopped
 
@@ -532,6 +552,8 @@ def save(timer: Timer):
         "paused_minutes": timer.paused_minutes,
         "completed_minutes": timer.completed_minutes,
         "mode": timer.mode,
+        "completed_cycle_minutes": timer.completed_cycle_minutes,
+        "break_minutes": timer.break_minutes,
     }
 
     json_obj = json.dumps(data, indent=4)
@@ -551,10 +573,12 @@ def load() -> Timer:
     return Timer(
         Status(data["status"]),
         data["start_datetime_str"],
-        data["start_datetime_str"],
+        data["stop_datetime_str"],
         data["paused_minutes"],
         data["completed_minutes"],
-        data["mode"])
+        data["mode"],
+        data["completed_cycle_minutes"],
+        data["break_minutes"])
 
 
 def string_time_to_minutes(time: str) -> int:
