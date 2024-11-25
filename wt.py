@@ -130,14 +130,13 @@ def main():
 
 
 def start(start_time: str = None):
-    timer = Timer()
-
     if start_time:
         validate_timestring_or_quit(start_time)
 
-    if os.path.exists(output_file_path()):
-        timer = load()
+    if not os.path.exists(output_file_path()):
+        reset()
 
+    timer = load()
     message = ""
     match timer.status:
         case Status.Running:
