@@ -41,17 +41,15 @@ class Timer():
             self,
             status=Status.Stopped,
             start="", stop="", pausedTime=0,
-            totalTime=0, mode=Mode.Silent,
-            cycle_minutes=[],
-            break_minutes=[]):
+            mode=Mode.Silent,
+            timeline=None):
         self.status: Status = status
         self.start_datetime_str: str = start
         self.stop_datetime_str: str = stop
         self.paused_minutes: int = pausedTime
-        self.completed_minutes: int = totalTime
         self.mode: Mode = mode
-        self.completed_cycle_minutes: List[int] = cycle_minutes
-        self.break_minutes: List[int] = break_minutes
+        # Timeline entries: {"type": "work"|"break", "start": timestamp, "stop": timestamp}
+        self.timeline: List[dict] = timeline if timeline is not None else []
 
     def __str__(self):
         return (
@@ -59,11 +57,19 @@ class Timer():
             f"start_datetime_sr = {self.start_datetime_str}\n"
             f"stop_datetime_str = {self.stop_datetime_str}\n"
             f"paused_minutes = {self.paused_minutes}\n"
-            f"completed_minutes = {self.completed_minutes}\n"
             f"mode = {self.mode}\n"
-            f"completed_cycle_minutes = {self.completed_cycle_minutes}\n"
-            f"break_minutes = {self.break_minutes}\n"
+            f"timeline = {self.timeline}\n"
         )
+    
+    def completed_minutes(self) -> int:
+        """Calculate total completed minutes from work cycles in timeline."""
+        total = 0
+        for entry in self.timeline:
+            if entry["type"] == "work":
+                start_dt = dt.strptime(entry["start"], DT_FORMAT)
+                stop_dt = dt.strptime(entry["stop"], DT_FORMAT)
+                total += delta_minutes(start_dt, stop_dt)
+        return total
 
 
 def main():
@@ -82,11 +88,6 @@ def main():
             pause()
         case "check":
             check()
-        case "set":
-            if len(args) != 3:
-                print("Incorrect amount of arguments.")
-                return
-            set_timer(args[1], args[2])
         case "add":
             if len(args) != 2:
                 print("Incorrect amount of arguments.")
@@ -147,9 +148,16 @@ def start(start_time: str = None):
 
     break_time_str = ""
     if timer.stop_datetime_str != "":
+        # Create a break timeline entry
+        break_start = timer.stop_datetime_str
+        break_stop = dt.now().strftime(DT_FORMAT)
+        timer.timeline.append({
+            "type": "break",
+            "start": break_start,
+            "stop": break_stop
+        })
         break_mins = delta_minutes(
-            dt.strptime(timer.stop_datetime_str, DT_FORMAT), dt.now())
-        timer.break_minutes.append(break_mins)
+            dt.strptime(break_start, DT_FORMAT), dt.strptime(break_stop, DT_FORMAT))
         break_time_str = mintues_to_hour_minute_str(break_mins)
 
     timer.stop_datetime_str = ""
@@ -174,7 +182,14 @@ def start(start_time: str = None):
             print("Can only set start time if stopped")
             return
         else:
-            set_timer("current", start_time, False)
+            # Backdate the start time by the specified minutes
+            minutes = string_time_to_minutes(start_time)
+            timer = load()
+            start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
+            new_start_dt = start_dt - timedelta(minutes=minutes)
+            timer.start_datetime_str = new_start_dt.strftime(DT_FORMAT)
+            update_last_start_resume_timestamp(timer.start_datetime_str)
+            save(timer)
 
 
 def stop():
@@ -185,17 +200,27 @@ def stop():
         case Status.Stopped:
             print("Timer already stopped.")
         case Status.Running | Status.Paused:
-            if timer.status == Status.Running:
-                cycle_start_str = timer.start_datetime_str
-                cycle_minutes += delta_minutes(
-                    dt.strptime(timer.start_datetime_str, DT_FORMAT), dt.now())
-
             now = dt.now()
-            timer.stop_datetime_str = now.strftime(DT_FORMAT)
+            stop_time_str = now.strftime(DT_FORMAT)
+            
+            # Create work timeline entry
+            # For paused timers, calculate the start based on accumulated paused time
+            if timer.status == Status.Paused:
+                work_start = (now - timedelta(minutes=timer.paused_minutes)).strftime(DT_FORMAT)
+                cycle_minutes = timer.paused_minutes
+            else:
+                work_start = timer.start_datetime_str
+                cycle_minutes = delta_minutes(dt.strptime(timer.start_datetime_str, DT_FORMAT), now)
+                cycle_minutes += timer.paused_minutes
+                
+            timer.timeline.append({
+                "type": "work",
+                "start": work_start,
+                "stop": stop_time_str
+            })
+            
+            timer.stop_datetime_str = stop_time_str
             timer.start_datetime_str = ""
-            cycle_minutes += timer.paused_minutes
-            timer.completed_minutes += cycle_minutes
-            timer.completed_cycle_minutes.append(cycle_minutes)
             timer.paused_minutes = 0
             timer.status = Status.Stopped
 
@@ -203,10 +228,10 @@ def stop():
             log_info(f"[{now.strftime(DT_FORMAT)}] Timer stopped")
             
             cycle_str = mintues_to_hour_minute_str(cycle_minutes)
-            total_str = mintues_to_hour_minute_str(timer.completed_minutes)
+            total_str = mintues_to_hour_minute_str(timer.completed_minutes())
             
-            if cycle_start_str:
-                start_time_only = dt.strptime(cycle_start_str, DT_FORMAT).strftime(TIME_ONLY_FORMAT)
+            if work_start:
+                start_time_only = dt.strptime(work_start, DT_FORMAT).strftime(TIME_ONLY_FORMAT)
                 end_time_only = now.strftime(TIME_ONLY_FORMAT)
                 log_info(f"[{start_time_only} => {end_time_only}] Completed cycle: {cycle_str} ({total_str})")
             else:
@@ -251,7 +276,7 @@ def check():
     elif timer.status == Status.Paused:
         running_minutes = timer.paused_minutes
 
-    total_minutes = running_minutes + timer.completed_minutes
+    total_minutes = running_minutes + timer.completed_minutes()
 
     running_str = ""
     match timer.status:
@@ -288,45 +313,6 @@ def history(log_type: str = None):
     with open(path, "r") as file:
         for line in file:
             print(line, end='')
-
-
-def set_timer(type: str, time: str, should_log: bool = True):
-    timer = load()
-    validate_timer_type_or_quit(type)
-    validate_timestring_or_quit(time)
-    minutes = string_time_to_minutes(time)
-
-    match type:
-        case "total" | "t":
-            if timer.status != Status.Stopped:
-                print("Can only set total time when timer is stopped.")
-                return
-
-            timer.completed_minutes = minutes
-        case "current" | "c":
-            if timer.status not in [Status.Running, Status.Paused, Status.Stopped]:
-                print(f"Current status {timer.status} not handled.")
-                return
-
-            timer.paused_minutes = minutes
-
-            if timer.status == Status.Running:
-                now = dt.now().strftime(DT_FORMAT)
-                timer.start_datetime_str = now
-
-            elif timer.status == Status.Stopped:
-                timer.status = Status.Paused
-
-        case _:
-            print(f"Unhandled type: {type}.")
-            return
-
-    if should_log:
-        log_debug(f"wt set {type} {time}")
-
-    save(timer)
-    print_message_if_not_silent(timer, "Timer set.")
-    print_check_if_verbose(timer)
 
 
 def add(time: str):
@@ -479,19 +465,13 @@ def print_help():
         check               Prints current and total time along with status.
                             Running wt without any command does the same.
 
-        set <type> <time>   Manually set total/current time using 1-4 digit
-                            HHMM, HMM, MM, or M. Ex. wt set total 15 = 15min.
-                            types:
-                                total (t)
-                                current (c)
-
         add <time>          Add <time> to current cycle time (only when running/paused).
                             Backdates start time to reflect actual work time.
-                            Same time format as Set command.
+                            Time format: 1-4 digit HHMM, HMM, MM, or M.
 
         sub <time>          Subtract <time> from current cycle time (only when running/paused).
                             Forward-dates start time to reflect actual work time.
-                            Same time format as Set command.
+                            Time format: 1-4 digit HHMM, HMM, MM, or M.
 
         log [type]          Show log of timer activity. Defaults to info log.
                             Use 'debug' to see command execution timestamps.
@@ -538,7 +518,7 @@ def delta_minutes(start: dt, now: dt) -> int:
 
 
 def total_with_paused_str(timer: Timer) -> str:
-    total = timer.paused_minutes + timer.completed_minutes
+    total = timer.paused_minutes + timer.completed_minutes()
 
     return hour_minute_str_from_minutes(total)
 
@@ -561,10 +541,8 @@ def save(timer: Timer):
         "start_datetime_str": timer.start_datetime_str,
         "stop_datetime_str": timer.stop_datetime_str,
         "paused_minutes": timer.paused_minutes,
-        "completed_minutes": timer.completed_minutes,
         "mode": timer.mode,
-        "completed_cycle_minutes": timer.completed_cycle_minutes,
-        "break_minutes": timer.break_minutes,
+        "timeline": timer.timeline,
     }
 
     json_obj = json.dumps(data, indent=4)
@@ -586,10 +564,8 @@ def load() -> Timer:
         data["start_datetime_str"],
         data["stop_datetime_str"],
         data["paused_minutes"],
-        data["completed_minutes"],
         data["mode"],
-        data["completed_cycle_minutes"],
-        data["break_minutes"])
+        data.get("timeline", []))
 
 
 def string_time_to_minutes(time: str) -> int:
@@ -616,12 +592,6 @@ def print_message_if_not_silent(timer: Timer, message: str):
 def print_check_if_verbose(timer: Timer):
     if timer.mode == Mode.Verbose:
         check()
-
-
-def validate_timer_type_or_quit(type: str):
-    if type not in ["total", "current", "t", "c"]:
-        print("Incorrect timer type. Should be 'total' or 'current'.")
-        quit()
 
 
 # Return if user input yes, else quit.
