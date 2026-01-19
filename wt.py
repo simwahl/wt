@@ -8,7 +8,6 @@ from typing import List
 import sys
 import os
 import shutil
-import re
 import json
 
 # Keep updated with .gitignore !
