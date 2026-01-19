@@ -50,14 +50,58 @@ This completes the current cycle and adds its time to your total.
 
 ### Manual Adjustments
 
-Manually adjust time using format `HHMM` (hours and minutes):
+**Adjust current cycle time** using format `HHMM` (hours and minutes):
 
 ```bash
-wt add 15     # Add 15 minutes (backdates start time)
-wt sub 120    # Subtract 1 hour 20 minutes (forward-dates start time)
+wt add 15     # Add 15 minutes to current cycle
+wt sub 120    # Subtract 1 hour 20 minutes from current cycle
 ```
 
-**Note:** Adjustments only work when the timer is running or paused. They modify the start time to accurately reflect when work actually started/ended.
+- When **running/paused**: Backdates/forward-dates the start time
+- When **stopped**: Modifies the last work cycle duration
+
+**Adjust day start time** (when you actually started working):
+
+```bash
+wt mod start sub 30  # Started 30 min earlier than first start command
+wt mod start add 15  # Started 15 min later than first start command
+```
+
+This is useful when you forgot to start the timer on time. The timer tracks your work day start time and calculates all cycle timestamps from there. For example:
+
+- You run `wt start` at 09:30
+- You realize you actually started working at 09:00
+- Run `wt mod start sub 30` to adjust the day start to 09:00
+- All timestamps in your log will shift to reflect the correct start time
+
+**How timestamps work:** The timer only stores your day start time and the duration of each work/break cycle. All the timestamps you see in `wt log` and `wt mod` are calculated by adding up durations from the day start. This means when you modify the day start or any cycle duration, all subsequent timestamps automatically recalculate correctly.
+
+**Modify historical cycles:**
+
+First, list all cycles (must be stopped):
+
+```bash
+wt mod
+# Output shows:
+# 01. [09:00 => 10:30] Work: 1h:30m (1h:30m)
+# 02. [10:30 => 10:45] Break: 0h:15m
+# 03. [10:45 => 12:00] Work: 1h:15m (2h:45m)
+```
+
+Then modify a specific cycle:
+
+```bash
+wt mod 1 add 10   # Add 10 minutes to cycle 1's duration
+wt mod 3 sub 5    # Subtract 5 minutes from cycle 3
+wt mod 2 drop     # Remove cycle 2 (merges adjacent work/break)
+```
+
+**Note:**
+
+- All `wt mod` modifications require the timer to be stopped
+- Can reduce duration to 0 minutes (helpful for finding mistakes)
+- Dropping a break between work cycles merges them
+- Dropping a work cycle between breaks merges the breaks
 
 ### Shortcuts
 
