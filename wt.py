@@ -142,6 +142,8 @@ def main():
             mode_select(args[1])
         case "help":
             print_help()
+        case "report":
+            report()
         case "debug":
             debug()
         case _:
@@ -388,6 +390,57 @@ def history(log_type: str = None):
             print(f"[{start_time_only} => .....] Work: {current_str} ({total_str}){day_indicator}")
         elif timer.status == Status.Paused:
             print(f"[{start_time_only} => .....] Work (paused): {current_str} ({total_str}){day_indicator}")
+
+
+def report():
+    """Print a one-line summary of the day's work."""
+    timer = load()
+    
+    if not timer.day_start:
+        print("No work recorded today.")
+        return
+    
+    # Calculate totals from timeline
+    total_work_mins = 0
+    total_break_mins = 0
+    
+    for entry in timer.timeline:
+        if entry["type"] == "work":
+            total_work_mins += entry["minutes"]
+        else:
+            total_break_mins += entry["minutes"]
+    
+    # Add current running/paused time if applicable
+    current_mins = 0
+    if timer.status in [Status.Running, Status.Paused]:
+        current_mins = calculate_current_minutes(timer)
+        total_work_mins += current_mins
+    
+    # Calculate end time
+    start_dt = dt.strptime(timer.day_start, DT_FORMAT)
+    end_dt = start_dt
+    
+    # Add all timeline entries
+    for entry in timer.timeline:
+        end_dt += timedelta(minutes=entry["minutes"])
+    
+    # Add current running time
+    if timer.status in [Status.Running, Status.Paused]:
+        end_dt += timedelta(minutes=current_mins)
+    
+    # Format output
+    date_str = start_dt.strftime("%Y-%m-%d")
+    start_time = start_dt.strftime(TIME_ONLY_FORMAT)
+    end_time = end_dt.strftime(TIME_ONLY_FORMAT)
+    work_str = mintues_to_hour_minute_str(total_work_mins)
+    break_str = mintues_to_hour_minute_str(total_break_mins)
+    total_str = mintues_to_hour_minute_str(total_work_mins + total_break_mins)
+    
+    # Check if crossed midnight
+    day_diff = (end_dt.date() - start_dt.date()).days
+    day_indicator = f" [+{day_diff} day]" if day_diff > 0 else ""
+    
+    print(f"{date_str} | {start_time} -> {end_time} | Work: {work_str} | Break: {break_str} | Total: {total_str}{day_indicator}")
 
 
 def mod_list():
@@ -900,6 +953,9 @@ def print_help():
         mod <num> drop      Remove a cycle. If removing a break between work
                             cycles, they will merge. If removing a work cycle
                             between breaks, the breaks will merge.
+
+        report              Print a one-line summary of the day's work including
+                            start time, total work time, total break time, and end time.
 
         next                Stop current timer and start next.
 
