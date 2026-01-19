@@ -824,7 +824,25 @@ def sub(time: str):
 
 def next_timer():
     stop()
-    start()
+
+    # Add a 0-minute break between cycles
+    timer = load()
+    timer.timeline.append({
+        "type": "break",
+        "minutes": 0
+    })
+    save(timer)
+
+    # Start next cycle (skip break calculation since we just added one)
+    timer.stop_datetime_str = ""
+    now = dt.now()
+    timer.start_datetime_str = now.strftime(DT_FORMAT)
+    timer.status = Status.Running
+
+    log_debug("wt next")
+    save(timer)
+    print_message_if_not_silent(timer, "Next cycle started.")
+    print_check_if_verbose(timer)
 
 
 def reset(msg: str = "Timer reset."):
