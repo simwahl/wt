@@ -142,3 +142,18 @@ wt log        # Show activity log with actual work times
 wt log info   # Same as above (default)
 wt log debug  # Show command execution log with timestamps
 ```
+
+Get a one-line summary of the day's work:
+
+```bash
+wt report
+```
+
+This displays:
+
+- Date
+- Start and end times
+- Total work time
+- Total break time
+- Total elapsed time
+- Day crossing indicator (if you worked past midnight)
