@@ -2,7 +2,7 @@
 # Work Time (like "time to work" and actually "timing" work :D)
 ##
 
-from datetime import datetime as dt
+from datetime import datetime as dt, timedelta
 from enum import StrEnum
 from typing import List
 import sys
@@ -14,11 +14,14 @@ import json
 # Keep updated with .gitignore !
 OUTPUT_FOLDER = ".out"
 OUTPUT_FILE_NAME = "wt.json"
-OUTPUT_LOG_NAME = "log"
-OUTPUT_LOG_PATH = f"{OUTPUT_FOLDER}/{OUTPUT_LOG_NAME}"
+DEBUG_LOG_NAME = "debug-log"
+INFO_LOG_NAME = "info-log"
+DEBUG_LOG_PATH = f"{OUTPUT_FOLDER}/{DEBUG_LOG_NAME}"
+INFO_LOG_PATH = f"{OUTPUT_FOLDER}/{INFO_LOG_NAME}"
 OUTPUT_FILE_PATH = f"{OUTPUT_FOLDER}/{OUTPUT_FILE_NAME}"
 
 DT_FORMAT = "%Y-%m-%d %H:%M:%S"
+TIME_ONLY_FORMAT = "%H:%M:%S"
 
 
 class Status(StrEnum):
@@ -31,11 +34,6 @@ class Mode(StrEnum):
     Silent = "silent"
     Normal = "normal"
     Verbose = "verbose"
-
-
-class LogType(StrEnum):
-    INFO = "INF"
-    COMMAND = "CMD"
 
 
 class Timer():
@@ -161,9 +159,11 @@ def start(start_time: str = None):
     timer.status = Status.Running
 
     start_time_log = f" {start_time}" if start_time != None else ""
-    log(LogType.COMMAND, f"wt start{start_time_log}")
-    if break_time_str != "":
-        log(LogType.INFO, f"Started again after: {break_time_str}")
+    log_debug(f"wt start{start_time_log}")
+    if prev_status == Status.Stopped:
+        log_info(f"[{now}] Timer started")
+    else:
+        log_info(f"[{now}] Timer resumed")
 
     save(timer)
     print_message_if_not_silent(timer, message)
@@ -180,15 +180,18 @@ def start(start_time: str = None):
 def stop():
     timer = load()
     cycle_minutes = 0
+    cycle_start_str = ""
     match timer.status:
         case Status.Stopped:
             print("Timer already stopped.")
         case Status.Running | Status.Paused:
             if timer.status == Status.Running:
+                cycle_start_str = timer.start_datetime_str
                 cycle_minutes += delta_minutes(
                     dt.strptime(timer.start_datetime_str, DT_FORMAT), dt.now())
 
-            timer.stop_datetime_str = dt.now().strftime(DT_FORMAT)
+            now = dt.now()
+            timer.stop_datetime_str = now.strftime(DT_FORMAT)
             timer.start_datetime_str = ""
             cycle_minutes += timer.paused_minutes
             timer.completed_minutes += cycle_minutes
@@ -196,10 +199,19 @@ def stop():
             timer.paused_minutes = 0
             timer.status = Status.Stopped
 
-            log(LogType.COMMAND, "wt stop")
+            log_debug("wt stop")
+            log_info(f"[{now.strftime(DT_FORMAT)}] Timer stopped")
+            
             cycle_str = mintues_to_hour_minute_str(cycle_minutes)
             total_str = mintues_to_hour_minute_str(timer.completed_minutes)
-            log(LogType.INFO, f"Completed cycle: {cycle_str} ({total_str})")
+            
+            if cycle_start_str:
+                start_time_only = dt.strptime(cycle_start_str, DT_FORMAT).strftime(TIME_ONLY_FORMAT)
+                end_time_only = now.strftime(TIME_ONLY_FORMAT)
+                log_info(f"[{start_time_only} => {end_time_only}] Completed cycle: {cycle_str} ({total_str})")
+            else:
+                log_info(f"Completed cycle: {cycle_str} ({total_str})")
+            
             save(timer)
             print_message_if_not_silent(timer, "Timer stopped.")
             print_check_if_verbose(timer)
@@ -219,7 +231,9 @@ def pause():
             timer.start_datetime_str = ""
             timer.status = Status.Paused
 
-            log(LogType.COMMAND, "wt pause")
+            now = dt.now().strftime(DT_FORMAT)
+            log_debug("wt pause")
+            log_info(f"[{now}] Timer paused")
             save(timer)
             print_message_if_not_silent(timer, "Timer paused.")
             print_check_if_verbose(timer)
@@ -257,21 +271,22 @@ def check():
     print(f"{running_str} {status_str} (total {total_str})")
 
 
-def history(log_type: LogType = None):
-    filters = ["info", "cmd"]
-    if log_type != None and log_type not in filters:
-        print(f"Invalid log type filter: {log_type}. Use one of: {filters}")
+def history(log_type: str = None):
+    valid_types = ["info", "debug"]
+    if log_type != None and log_type not in valid_types:
+        print(f"Invalid log type: {log_type}. Use one of: {valid_types}")
         quit()
 
     load()  # Make sure there is a timer.
-    path = log_file_path()
+    
+    # Default to info-log if no type specified
+    if log_type == "debug":
+        path = debug_log_file_path()
+    else:
+        path = info_log_file_path()
+    
     with open(path, "r") as file:
         for line in file:
-            if log_type:
-                lt = log_type_from_log_line(line)
-                if (lt == LogType.INFO and log_type != "info") or (lt == LogType.COMMAND and log_type != "cmd"):
-                    continue
-
             print(line, end='')
 
 
@@ -307,7 +322,7 @@ def set_timer(type: str, time: str, should_log: bool = True):
             return
 
     if should_log:
-        log(LogType.COMMAND, f"wt set {type} {time}")
+        log_debug(f"wt set {type} {time}")
 
     save(timer)
     print_message_if_not_silent(timer, "Timer set.")
@@ -319,26 +334,21 @@ def add(time: str):
     validate_timestring_or_quit(time)
     minutes = string_time_to_minutes(time)
 
-    type = "total" if timer.status == Status.Stopped else "current"
+    if timer.status == Status.Stopped:
+        print("Cannot add time when stopped. Start the timer first.")
+        return
 
-    if type == "total":
-        if timer.status != Status.Stopped:
-            print("Can only update total time when timer is stopped.")
-            return
+    # Backdate the start time by the added minutes
+    if timer.status == Status.Running:
+        start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
+        new_start_dt = start_dt - timedelta(minutes=minutes)
+        timer.start_datetime_str = new_start_dt.strftime(DT_FORMAT)
+        # Update the info-log to reflect the actual start time
+        update_last_start_resume_timestamp(timer.start_datetime_str)
+    elif timer.status == Status.Paused:
+        timer.paused_minutes += minutes
 
-        timer.completed_minutes += minutes
-
-    else:
-        timer.paused_minutes = calculate_current_minutes(timer) + minutes
-
-        if timer.status == Status.Running:
-            now = dt.now().strftime(DT_FORMAT)
-            timer.start_datetime_str = now
-
-        elif timer.status == Status.Stopped:
-            timer.status = Status.Paused
-
-    log(LogType.COMMAND, f"wt add {time}")
+    log_debug(f"wt add {time}")
     save(timer)
 
 
@@ -347,28 +357,26 @@ def sub(time: str):
     validate_timestring_or_quit(time)
     minutes = string_time_to_minutes(time)
 
-    type = "total" if timer.status == Status.Stopped else "current"
+    if timer.status == Status.Stopped:
+        print("Cannot subtract time when stopped.")
+        return
 
-    if type == "total":
-        if timer.completed_minutes < minutes:
-            print("Cannot reduce total minutes to below 0.")
-            return
+    current_minutes = calculate_current_minutes(timer)
+    if current_minutes < minutes:
+        print("Cannot reduce current minutes to below 0.")
+        return
 
-        timer.completed_minutes -= minutes
+    # Forward-date the start time by the subtracted minutes (reducing total time)
+    if timer.status == Status.Running:
+        start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
+        new_start_dt = start_dt + timedelta(minutes=minutes)
+        timer.start_datetime_str = new_start_dt.strftime(DT_FORMAT)
+        # Update the info-log to reflect the actual start time
+        update_last_start_resume_timestamp(timer.start_datetime_str)
+    elif timer.status == Status.Paused:
+        timer.paused_minutes -= minutes
 
-    else:
-        new_current_minutes = calculate_current_minutes(timer) - minutes
-        if new_current_minutes < 0:
-            print("Cannot reduce current minutes to below 0.")
-            return
-
-        timer.paused_minutes = new_current_minutes
-
-        if timer.status == Status.Running:
-            now = dt.now().strftime(DT_FORMAT)
-            timer.start_datetime_str = now
-
-    log(LogType.COMMAND, f"wt sub {time}")
+    log_debug(f"wt sub {time}")
     save(timer)
 
 
@@ -390,7 +398,8 @@ def reset(msg: str = "Timer reset."):
 
     os.mkdir(output_folder)
 
-    open(log_file_path(), 'a').close()
+    open(debug_log_file_path(), 'a').close()
+    open(info_log_file_path(), 'a').close()
 
     timer = Timer()
     if old_mode:
@@ -417,7 +426,8 @@ def remove():
     yes_or_no_prompt("Remove timer?")
     # TODO: Maybe remove whole OUTPUT_FOLDER? Only .wt and not output root because it might break system?
     os.remove(output_file_path())
-    os.remove(log_file_path())
+    os.remove(debug_log_file_path())
+    os.remove(info_log_file_path())
     print_message_if_not_silent(timer, "Timer removed.")
 
 
@@ -475,17 +485,19 @@ def print_help():
                                 total (t)
                                 current (c)
 
-        add <time>          Add <time> to total if stopped, else current time.
+        add <time>          Add <time> to current cycle time (only when running/paused).
+                            Backdates start time to reflect actual work time.
                             Same time format as Set command.
 
-        sub <time>          Subtract <time> to total if stopped, else current time.
+        sub <time>          Subtract <time> from current cycle time (only when running/paused).
+                            Forward-dates start time to reflect actual work time.
                             Same time format as Set command.
 
-        log [type]          Show log of successfully run commands which impacted
-                            the timer. Optionally filter logs by type.
+        log [type]          Show log of timer activity. Defaults to info log.
+                            Use 'debug' to see command execution timestamps.
             types:
-                info        Only prints info logs
-                cmd         Only prints logs of commands
+                info        Activity log with actual work times (default)
+                debug       Command execution log with timestamps
 
         next                Stop current timer and start next.
 
@@ -635,8 +647,12 @@ def output_file_path() -> str:
     return f"{project_root_path()}/{OUTPUT_FILE_PATH}"
 
 
-def log_file_path() -> str:
-    return f"{project_root_path()}/{OUTPUT_LOG_PATH}"
+def debug_log_file_path() -> str:
+    return f"{project_root_path()}/{DEBUG_LOG_PATH}"
+
+
+def info_log_file_path() -> str:
+    return f"{project_root_path()}/{INFO_LOG_PATH}"
 
 
 def project_root_path() -> str:
@@ -657,26 +673,46 @@ def mintues_to_hour_minute_str(mins: int) -> str:
     return f"{h}h:{m:02d}m"
 
 
-def log(log_type: LogType,  msg: str):
+def log_debug(msg: str):
     timestamp = dt.now().strftime(DT_FORMAT)
-    with open(log_file_path(), "a") as file:
-        file.write(f"[{timestamp}] [{log_type}] {msg}\n")
+    with open(debug_log_file_path(), "a") as file:
+        file.write(f"[{timestamp}] {msg}\n")
 
 
-def log_type_from_log_line(line: str) -> LogType:
-    pattern = re.compile("\\] \\[(.*?)\\]")
-    res = pattern.findall(line)
-    if len(res) != 1:
-        print(f"Issue extracting log type from: {line}")
-        quit()
+def log_info(msg: str):
+    with open(info_log_file_path(), "a") as file:
+        file.write(f"{msg}\n")
 
-    try:
-        t = LogType(res[0])
-        return t
-    except:
-        print(f"Issue extracting log type from: {line}")
-        print(f"Invalid log type: {res[0]}")
-        quit()
+
+def update_last_start_resume_timestamp(new_datetime_str: str):
+    """Update the timestamp of the last 'Timer started' or 'Timer resumed' line in info-log."""
+    path = info_log_file_path()
+    if not os.path.exists(path):
+        return
+    
+    with open(path, "r") as file:
+        lines = file.readlines()
+    
+    # Find the last "Timer started" or "Timer resumed" line
+    last_index = -1
+    for i in range(len(lines) - 1, -1, -1):
+        if "Timer started" in lines[i] or "Timer resumed" in lines[i]:
+            last_index = i
+            break
+    
+    if last_index != -1:
+        # Extract the action (started or resumed)
+        if "Timer started" in lines[last_index]:
+            action = "Timer started"
+        else:
+            action = "Timer resumed"
+        
+        # Update the line with new timestamp
+        lines[last_index] = f"[{new_datetime_str}] {action}\n"
+        
+        # Write back
+        with open(path, "w") as file:
+            file.writelines(lines)
 
 
 if __name__ == "__main__":
