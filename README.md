@@ -53,11 +53,11 @@ This completes the current cycle and adds its time to your total.
 Manually adjust time using format `HHMM` (hours and minutes):
 
 ```bash
-wt add 15     # Add 15 minutes
-wt sub 120    # Subtract 1 hour 20 minutes
+wt add 15     # Add 15 minutes (backdates start time)
+wt sub 120    # Subtract 1 hour 20 minutes (forward-dates start time)
 ```
 
-**Note:** Adjustments modify the current cycle if it's running or paused, otherwise they modify the total time.
+**Note:** Adjustments only work when the timer is running or paused. They modify the start time to accurately reflect when work actually started/ended.
 
 ### Shortcuts
 
@@ -94,5 +94,7 @@ wt
 View your timer action history:
 
 ```bash
-wt log
+wt log        # Show activity log with actual work times
+wt log info   # Same as above (default)
+wt log debug  # Show command execution log with timestamps
 ```
