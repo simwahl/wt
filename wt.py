@@ -15,9 +15,11 @@ OUTPUT_FOLDER = ".out"
 OUTPUT_FILE_NAME = "wt.json"
 DEBUG_LOG_NAME = "debug-log"
 INFO_LOG_NAME = "info-log"
+DAILY_REPORT_NAME = "daily-reports"
 DEBUG_LOG_PATH = f"{OUTPUT_FOLDER}/{DEBUG_LOG_NAME}"
 INFO_LOG_PATH = f"{OUTPUT_FOLDER}/{INFO_LOG_NAME}"
 OUTPUT_FILE_PATH = f"{OUTPUT_FOLDER}/{OUTPUT_FILE_NAME}"
+DAILY_REPORT_PATH = f"{OUTPUT_FOLDER}/{DAILY_REPORT_NAME}"
 
 DT_FORMAT = "%Y-%m-%d %H:%M"
 TIME_ONLY_FORMAT = "%H:%M"
@@ -850,12 +852,77 @@ def next_timer():
     print_check_if_verbose(timer)
 
 
+def save_daily_report():
+    """Save a daily report to the daily-reports file."""
+    timer = load()
+    
+    # Only save if there's work recorded
+    if not timer.day_start:
+        return
+    
+    # Calculate totals from timeline
+    total_work_mins = 0
+    total_break_mins = 0
+    
+    for entry in timer.timeline:
+        if entry["type"] == "work":
+            total_work_mins += entry["minutes"]
+        else:
+            total_break_mins += entry["minutes"]
+    
+    # Add current running/paused time if applicable
+    current_mins = 0
+    if timer.status in [Status.Running, Status.Paused]:
+        current_mins = calculate_current_minutes(timer)
+        total_work_mins += current_mins
+    
+    # Calculate end time
+    start_dt = dt.strptime(timer.day_start, DT_FORMAT)
+    end_dt = start_dt
+    
+    # Add all timeline entries
+    for entry in timer.timeline:
+        end_dt += timedelta(minutes=entry["minutes"])
+    
+    # Add current running time
+    if timer.status in [Status.Running, Status.Paused]:
+        end_dt += timedelta(minutes=current_mins)
+    
+    # Format output
+    date_str = start_dt.strftime("%Y-%m-%d")
+    start_time = start_dt.strftime(TIME_ONLY_FORMAT)
+    end_time = end_dt.strftime(TIME_ONLY_FORMAT)
+    work_str = mintues_to_hour_minute_str(total_work_mins)
+    break_str = mintues_to_hour_minute_str(total_break_mins)
+    total_str = mintues_to_hour_minute_str(total_work_mins + total_break_mins)
+    
+    # Check if crossed midnight
+    day_diff = (end_dt.date() - start_dt.date()).days
+    day_indicator = f" [+{day_diff} day]" if day_diff > 0 else ""
+    
+    report_line = f"{date_str} | {start_time} -> {end_time} | Work: {work_str} | Break: {break_str} | Total: {total_str}{day_indicator}\n"
+    
+    # Append to daily report file
+    with open(daily_report_file_path(), "a") as file:
+        file.write(report_line)
+
+
 def reset(msg: str = "Timer reset."):
     old_mode = None
+    daily_report_content = None
+    
     if os.path.exists(output_file_path()):
         old_timer = load()
         yes_or_no_prompt("Reset timer?")
         old_mode = old_timer.mode
+        # Save daily report before resetting
+        save_daily_report()
+        
+        # Preserve daily report content before deleting folder
+        daily_report_path = daily_report_file_path()
+        if os.path.exists(daily_report_path):
+            with open(daily_report_path, "r") as f:
+                daily_report_content = f.read()
 
     output_folder = output_folder_path()
     if os.path.exists(output_folder):
@@ -865,6 +932,11 @@ def reset(msg: str = "Timer reset."):
 
     open(debug_log_file_path(), 'a').close()
     open(info_log_file_path(), 'a').close()
+    
+    # Restore daily report content if it existed
+    if daily_report_content:
+        with open(daily_report_file_path(), "w") as f:
+            f.write(daily_report_content)
 
     timer = Timer()
     if old_mode:
@@ -878,6 +950,7 @@ def reset(msg: str = "Timer reset."):
 def restart(start_time: str):
     if start_time:
         validate_timestring_or_quit(start_time)
+    # Note: reset() will handle saving the daily report
     reset()
     start(start_time)
 
@@ -893,6 +966,9 @@ def remove():
     os.remove(output_file_path())
     os.remove(debug_log_file_path())
     os.remove(info_log_file_path())
+    # Remove daily report file if it exists
+    if os.path.exists(daily_report_file_path()):
+        os.remove(daily_report_file_path())
     print_message_if_not_silent(timer, "Timer removed.")
 
 
@@ -1126,6 +1202,10 @@ def debug_log_file_path() -> str:
 
 def info_log_file_path() -> str:
     return f"{project_root_path()}/{INFO_LOG_PATH}"
+
+
+def daily_report_file_path() -> str:
+    return f"{project_root_path()}/{DAILY_REPORT_PATH}"
 
 
 def project_root_path() -> str:
