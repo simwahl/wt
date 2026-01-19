@@ -475,6 +475,12 @@ def mod_list():
             print(f"{i:02d}. [{start_time} => {stop_time}] Work: {duration_str} ({total_str})")
         else:
             print(f"{i:02d}. [{start_time} => {stop_time}] Break: {duration_str}")
+    
+    # Print usage info
+    print("\nUsage:")
+    print("  wt mod start <add|sub> <time> - adjust day start time")
+    print("  wt mod <num> <add|sub> <time> - adjust cycle duration")
+    print("  wt mod <num> drop             - remove cycle")
 
 
 def mod_start(operation: str, time_str: str):
