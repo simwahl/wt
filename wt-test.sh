@@ -90,7 +90,7 @@ $WT_CMD start > /dev/null 2>&1
 export WT_MOCK_TIME="2026-01-20 09:50"
 $WT_CMD stop > /dev/null 2>&1
 
-expected_log="[09:00 => 09:50] Work: 0h:40m, Paused: 0h:10m (0h:40m)"
+expected_log="01. [09:00 => 09:50] Work: 0h:40m, Paused: 0h:10m (0h:40m)"
 actual_log=$($WT_CMD log)
 check_output "log shows work and paused time" "$expected_log" "$actual_log"
 
@@ -121,11 +121,11 @@ $WT_CMD start > /dev/null 2>&1
 export WT_MOCK_TIME="2026-01-20 10:05"
 $WT_CMD stop > /dev/null 2>&1
 
-expected_log="[09:00 => 09:20] Work: 0h:20m (0h:20m)
-[09:20 => 09:25] Break: 0h:05m
-[09:25 => 09:40] Work: 0h:15m (0h:35m)
-[09:40 => 09:50] Break: 0h:10m
-[09:50 => 10:05] Work: 0h:15m (0h:50m)"
+expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
+02. [09:20 => 09:25] Break: 0h:05m
+03. [09:25 => 09:40] Work: 0h:15m (0h:35m)
+04. [09:40 => 09:50] Break: 0h:10m
+05. [09:50 => 10:05] Work: 0h:15m (0h:50m)"
 actual_log=$($WT_CMD log)
 check_output "log shows all cycles and breaks" "$expected_log" "$actual_log"
 
@@ -146,7 +146,7 @@ $WT_CMD start 30 > /dev/null 2>&1
 export WT_MOCK_TIME="2026-01-20 10:15"
 $WT_CMD stop > /dev/null 2>&1
 
-expected_log="[09:30 => 10:15] Work: 0h:45m (0h:45m)"
+expected_log="01. [09:30 => 10:15] Work: 0h:45m (0h:45m)"
 actual_log=$($WT_CMD log)
 check_output "log shows backdated start time" "$expected_log" "$actual_log"
 
@@ -168,9 +168,9 @@ $WT_CMD start 10 > /dev/null 2>&1
 export WT_MOCK_TIME="2026-01-20 09:45"
 $WT_CMD stop > /dev/null 2>&1
 
-expected_log="[09:00 => 09:20] Work: 0h:20m (0h:20m)
-[09:20 => 09:25] Break: 0h:05m
-[09:25 => 09:45] Work: 0h:20m (0h:40m)"
+expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
+02. [09:20 => 09:25] Break: 0h:05m
+03. [09:25 => 09:45] Work: 0h:20m (0h:40m)"
 actual_log=$($WT_CMD log)
 check_output "log shows reduced break time" "$expected_log" "$actual_log"
 
@@ -189,7 +189,7 @@ $WT_CMD stop > /dev/null 2>&1
 
 $WT_CMD mod 1 add 15 > /dev/null 2>&1
 
-expected_log="[09:00 => 09:20] Work: 0h:20m (0h:20m)"
+expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)"
 actual_log=$($WT_CMD log)
 check_output "log shows modified duration" "$expected_log" "$actual_log"
 
@@ -208,7 +208,7 @@ $WT_CMD stop > /dev/null 2>&1
 
 $WT_CMD mod start sub 60 > /dev/null 2>&1
 
-expected_log="[09:00 => 09:30] Work: 0h:30m (0h:30m)"
+expected_log="01. [09:00 => 09:30] Work: 0h:30m (0h:30m)"
 actual_log=$($WT_CMD log)
 check_output "log shows adjusted start time" "$expected_log" "$actual_log"
 
@@ -229,7 +229,7 @@ $WT_CMD start > /dev/null 2>&1
 export WT_MOCK_TIME="2026-01-20 09:45"
 $WT_CMD stop > /dev/null 2>&1
 
-expected_log="[09:00 => 09:45] Work: 0h:15m, Paused: 0h:30m (0h:15m)"
+expected_log="01. [09:00 => 09:45] Work: 0h:15m, Paused: 0h:30m (0h:15m)"
 actual_log=$($WT_CMD log)
 check_output "log shows mostly paused cycle" "$expected_log" "$actual_log"
 
@@ -256,7 +256,7 @@ $WT_CMD start > /dev/null 2>&1
 export WT_MOCK_TIME="2026-01-20 09:45"
 $WT_CMD stop > /dev/null 2>&1
 
-expected_log="[09:00 => 09:45] Work: 0h:25m, Paused: 0h:20m (0h:25m)"
+expected_log="01. [09:00 => 09:45] Work: 0h:25m, Paused: 0h:20m (0h:25m)"
 actual_log=$($WT_CMD log)
 check_output "log shows accumulated paused time" "$expected_log" "$actual_log"
 
@@ -275,9 +275,9 @@ $WT_CMD next > /dev/null 2>&1
 export WT_MOCK_TIME="2026-01-20 09:40"
 $WT_CMD stop > /dev/null 2>&1
 
-expected_log="[09:00 => 09:20] Work: 0h:20m (0h:20m)
-[09:20 => 09:20] Break: 0h:00m
-[09:20 => 09:40] Work: 0h:20m (0h:40m)"
+expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
+02. [09:20 => 09:20] Break: 0h:00m
+03. [09:20 => 09:40] Work: 0h:20m (0h:40m)"
 actual_log=$($WT_CMD log)
 check_output "log shows zero-minute break" "$expected_log" "$actual_log"
 
@@ -301,8 +301,8 @@ $WT_CMD stop > /dev/null 2>&1
 
 $WT_CMD mod 1 drop > /dev/null 2>&1
 
-expected_log="[09:00 => 09:05] Break: 0h:05m
-[09:05 => 09:20] Work: 0h:15m (0h:15m)"
+expected_log="01. [09:00 => 09:05] Break: 0h:05m
+02. [09:05 => 09:20] Work: 0h:15m (0h:15m)"
 actual_log=$($WT_CMD log)
 check_output "log shows remaining cycle with adjusted times" "$expected_log" "$actual_log"
 

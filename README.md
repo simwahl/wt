@@ -68,26 +68,32 @@ This is useful when you forgot to start the timer on time. The timer tracks your
 - Run `wt mod start sub 30` to adjust the day start to 09:00
 - All timestamps in your log will shift to reflect the correct start time
 
-**How timestamps work:** The timer only stores your day start time and the duration of each work/break cycle. All the timestamps you see in `wt log` and `wt mod` are calculated by adding up durations from the day start. This means when you modify the day start or any cycle duration, all subsequent timestamps automatically recalculate correctly.
+**How timestamps work:** The timer only stores your day start time and the duration of each work/break cycle. All the timestamps you see in `wt log` are calculated by adding up durations from the day start. This means when you modify the day start or any cycle duration, all subsequent timestamps automatically recalculate correctly.
 
 **Modify historical cycles:**
 
-First, list all cycles (must be stopped):
+View your numbered timeline (must be stopped):
 
 ```bash
-wt mod
+wt log
 # Output shows:
 # 01. [09:00 => 10:30] Work: 1h:30m (1h:30m)
 # 02. [10:30 => 10:45] Break: 0h:15m
 # 03. [10:45 => 12:00] Work: 1h:15m (2h:45m)
 ```
 
-Then modify a specific cycle:
+Then modify a specific cycle using its number:
 
 ```bash
 wt mod 1 add 10   # Add 10 minutes to cycle 1's duration
 wt mod 3 sub 5    # Subtract 5 minutes from cycle 3
 wt mod 2 drop     # Remove cycle 2 (merges adjacent work/break)
+```
+
+To see usage help for the mod command:
+
+```bash
+wt mod            # Shows available mod commands
 ```
 
 **Note:**
@@ -112,6 +118,7 @@ wt start 10  # After stopping: reduces previous break by 10 minutes
 ```
 
 For example:
+
 - Stop at 14:00, take a break
 - Start again at 14:20 (20 min break)
 - Run `wt start 10` to reduce break to 10 min (cycle starts at 14:10 instead)
