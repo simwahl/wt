@@ -902,9 +902,15 @@ def save_daily_report():
     
     report_line = f"{date_str} | {start_time} -> {end_time} | Work: {work_str} | Break: {break_str} | Total: {total_str}{day_indicator}\n"
     
-    # Append to daily report file
-    with open(daily_report_file_path(), "a") as file:
-        file.write(report_line)
+    # Prepend to daily report file (newest at top)
+    report_path = daily_report_file_path()
+    existing_content = ""
+    if os.path.exists(report_path):
+        with open(report_path, "r") as file:
+            existing_content = file.read()
+    
+    with open(report_path, "w") as file:
+        file.write(report_line + existing_content)
 
 
 def reset(msg: str = "Timer reset."):
