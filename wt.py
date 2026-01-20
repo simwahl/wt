@@ -426,9 +426,15 @@ def history(log_type: str = None):
     else:
         path = info_log_file_path()
     
-    with open(path, "r") as file:
-        for line in file:
-            print(line, end='')
+    # Print with line numbers for info-log, plain for debug-log
+    if log_type == "debug":
+        with open(path, "r") as file:
+            for line in file:
+                print(line, end='')
+    else:
+        with open(path, "r") as file:
+            for i, line in enumerate(file, 1):
+                print(f"{i:02d}. {line}", end='')
 
     # If viewing info-log and timer is running or paused, show current active cycle
     if log_type != "debug" and timer.status in [Status.Running, Status.Paused]:
@@ -453,10 +459,13 @@ def history(log_type: str = None):
         day_diff = (now.date() - cycle_start_dt.date()).days
         day_indicator = f"  [+{day_diff} day]" if day_diff > 0 else ""
         
+        # Line number is timeline length + 1 (for current active cycle)
+        line_num = len(timer.timeline) + 1
+        
         if timer.status == Status.Running:
-            print(f"[{start_time_only} => .....] Work: {current_str} ({total_str}){day_indicator}")
+            print(f"{line_num:02d}. [{start_time_only} => .....] Work: {current_str} ({total_str}){day_indicator}")
         elif timer.status == Status.Paused:
-            print(f"[{start_time_only} => .....] Work (paused): {current_str} ({total_str}){day_indicator}")
+            print(f"{line_num:02d}. [{start_time_only} => .....] Work (paused): {current_str} ({total_str}){day_indicator}")
 
 
 def report():
@@ -517,40 +526,8 @@ def report():
 
 
 def mod_list():
-    """List all timeline entries with numbers."""
-    timer = load()
-    
-    if not timer.timeline:
-        print("No cycles to modify.")
-        return
-    
-    # Calculate times from day_start
-    if timer.day_start:
-        current_time = dt.strptime(timer.day_start, DT_FORMAT)
-    else:
-        current_time = get_current_time()
-    
-    running_total_work = 0
-    
-    for i, entry in enumerate(timer.timeline, 1):
-        duration_mins = entry["minutes"]
-        duration_str = mintues_to_hour_minute_str(duration_mins)
-        
-        # Calculate start and stop times
-        start_time = current_time.strftime(TIME_ONLY_FORMAT)
-        current_time += timedelta(minutes=duration_mins)
-        stop_time = current_time.strftime(TIME_ONLY_FORMAT)
-        
-        # For work cycles, show running total
-        if entry["type"] == "work":
-            running_total_work += duration_mins
-            total_str = mintues_to_hour_minute_str(running_total_work)
-            print(f"{i:02d}. [{start_time} => {stop_time}] Work: {duration_str} ({total_str})")
-        else:
-            print(f"{i:02d}. [{start_time} => {stop_time}] Break: {duration_str}")
-    
-    # Print usage info
-    print("\nUsage:")
+    """Show usage help for mod command."""
+    print("Usage:")
     print("  wt mod start <add|sub> <time> - adjust day start time")
     print("  wt mod <num> <add|sub> <time> - adjust cycle duration")
     print("  wt mod <num> drop             - remove cycle")
