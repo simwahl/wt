@@ -57,8 +57,10 @@ wt add 15     # Add 15 minutes to current cycle
 wt sub 120    # Subtract 1 hour 20 minutes from current cycle
 ```
 
-- When **running/paused**: Backdates/forward-dates the start time
+- When **running/paused on the first cycle**: Backdates the day start time and current cycle start time
+- When **running/paused on subsequent cycles**: Adds/subtracts accumulated minutes without changing timestamps
 - When **stopped**: Modifies the last work cycle duration
+- **Note**: Break durations are never modified by `wt add` or `wt sub` - they are always preserved as originally recorded
 
 **Adjust day start time** (when you actually started working):
 
