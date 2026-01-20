@@ -25,6 +25,14 @@ DT_FORMAT = "%Y-%m-%d %H:%M"
 TIME_ONLY_FORMAT = "%H:%M"
 
 
+def get_current_time():
+    """Get current time, or mock time if WT_MOCK_TIME is set."""
+    mock_time = os.environ.get("WT_MOCK_TIME")
+    if mock_time:
+        return dt.strptime(mock_time, DT_FORMAT)
+    return dt.now()
+
+
 class Status(StrEnum):
     Stopped = "stopped"
     Paused = "paused"
@@ -41,24 +49,29 @@ class Timer():
     def __init__(
             self,
             status=Status.Stopped,
-            start="", stop="", pausedTime=0,
+            start="", stop="", accumulatedMinutes=0,
             mode=Mode.Silent,
             timeline=None,
-            dayStart=""):
+            dayStart="",
+            cycleStart=""):
         self.status: Status = status
-        self.start_datetime_str: str = start
+        self.start_datetime_str: str = start  # When current running segment started (or pause started)
         self.stop_datetime_str: str = stop
-        self.paused_minutes: int = pausedTime
+        # Paused time within current cycle
+        self.paused_minutes: int = accumulatedMinutes
         self.mode: Mode = mode
         # Timeline entries: {"type": "work"|"break", "minutes": N}
         self.timeline: List[dict] = timeline if timeline is not None else []
         # When did this day's work start (first work cycle start time)
         self.day_start: str = dayStart
+        # When did the current cycle start (first start, before any pauses)
+        self.cycle_start_datetime_str: str = cycleStart
 
     def __str__(self):
         return (
             f"status = {self.status}\n"
             f"day_start = {self.day_start}\n"
+            f"cycle_start_datetime_str = {self.cycle_start_datetime_str}\n"
             f"start_datetime_str = {self.start_datetime_str}\n"
             f"stop_datetime_str = {self.stop_datetime_str}\n"
             f"paused_minutes = {self.paused_minutes}\n"
@@ -91,16 +104,6 @@ def main():
             pause()
         case "check":
             check()
-        case "add":
-            if len(args) != 2:
-                print("Incorrect amount of arguments.")
-                return
-            add(args[1])
-        case "sub":
-            if len(args) != 2:
-                print("Incorrect amount of arguments.")
-                return
-            sub(args[1])
         case "log":
             log_type = None if len(args) < 2 else args[1]
             history(log_type)
@@ -159,6 +162,7 @@ def start(start_time: str = None):
         reset()
 
     timer = load()
+    
     message = ""
     match timer.status:
         case Status.Running:
@@ -166,13 +170,33 @@ def start(start_time: str = None):
             return
         case Status.Paused:
             message = "Resuming timer."
+            # Calculate pause duration and add to paused_minutes
+            pause_start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
+            pause_duration = delta_minutes(pause_start_dt, get_current_time())
+            timer.paused_minutes += pause_duration
         case Status.Stopped:
             message = "Starting timer."
+
+    # Track if this is first cycle (before adding break)
+    is_first_cycle = len(timer.timeline) == 0
+
+    # If start_time is provided on subsequent cycle, validate break duration first
+    if start_time != None and not is_first_cycle:
+        minutes = string_time_to_minutes(start_time)
+        # Calculate what the break would be
+        if timer.stop_datetime_str != "":
+            break_start_dt = dt.strptime(timer.stop_datetime_str, DT_FORMAT)
+            break_stop_dt = get_current_time()
+            break_mins = delta_minutes(break_start_dt, break_stop_dt)
+            
+            if break_mins < minutes:
+                print(f"Cannot reduce break below 0. Break was {mintues_to_hour_minute_str(break_mins)}, tried to subtract {mintues_to_hour_minute_str(minutes)}.")
+                return
 
     # Calculate break if resuming from stopped state
     if timer.stop_datetime_str != "":
         break_start_dt = dt.strptime(timer.stop_datetime_str, DT_FORMAT)
-        break_stop_dt = dt.now()
+        break_stop_dt = get_current_time()
         break_mins = delta_minutes(break_start_dt, break_stop_dt)
         timer.timeline.append({
             "type": "break",
@@ -180,12 +204,16 @@ def start(start_time: str = None):
         })
 
     timer.stop_datetime_str = ""
-    now = dt.now()
+    now = get_current_time()
     timer.start_datetime_str = now.strftime(DT_FORMAT)
     
     # If this is the first cycle of the day, set day_start
     if not timer.day_start:
         timer.day_start = timer.start_datetime_str
+    
+    # If starting a new cycle (not resuming from pause), set cycle_start
+    if timer.status == Status.Stopped:
+        timer.cycle_start_datetime_str = timer.start_datetime_str
     
     timer.status = Status.Running
 
@@ -196,49 +224,50 @@ def start(start_time: str = None):
     print_message_if_not_silent(timer, message)
     print_check_if_verbose(timer)
 
-    # Handle backdating with start_time parameter
+    # Handle start_time parameter
     if start_time != None:
-        # Can only backdate when starting from stopped
-        # This is used by restart command
         minutes = string_time_to_minutes(start_time)
         timer = load()
-        start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
-        new_start_dt = start_dt - timedelta(minutes=minutes)
         
-        # Validate: new start must be before now
-        if new_start_dt >= now:
-            print(f"Cannot backdate start that far.")
-            return
-        
-        timer.start_datetime_str = new_start_dt.strftime(DT_FORMAT)
-        
-        # If this was the first cycle, update day_start too
-        if len(timer.timeline) == 0 or (len(timer.timeline) == 1 and timer.timeline[0]["type"] == "break"):
+        if is_first_cycle:
+            # First cycle: backdate day_start, start_datetime_str and cycle_start
+            start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
+            new_start_dt = start_dt - timedelta(minutes=minutes)
+            
+            # Validate: new start must be before now
+            if new_start_dt >= now:
+                print(f"Cannot backdate start that far.")
+                return
+            
+            timer.start_datetime_str = new_start_dt.strftime(DT_FORMAT)
+            timer.cycle_start_datetime_str = new_start_dt.strftime(DT_FORMAT)
             timer.day_start = new_start_dt.strftime(DT_FORMAT)
-        
-        # Adjust the break duration if we just added one
-        if timer.timeline and timer.timeline[-1]["type"] == "break":
-            # Recalculate break: from stop_datetime_str to new start
-            # But we need the actual stop time from before
-            # Actually, the break was already calculated before backdating
-            # We need to adjust it: the break should now be shorter
-            break_entry = timer.timeline[-1]
-            old_break_mins = break_entry["minutes"]
-            # The break started at stop_datetime_str and originally ended at old start time
-            # Now it ends at new_start_dt
-            # So the new break duration is: old_break_mins - minutes
-            new_break_mins = old_break_mins - minutes
-            if new_break_mins <= 0:
-                # Remove break entirely
-                timer.timeline.pop()
-            else:
+            
+            save(timer)
+        else:
+            # Subsequent cycles: reduce the break we just added
+            if timer.timeline and timer.timeline[-1]["type"] == "break":
+                break_entry = timer.timeline[-1]
+                new_break_mins = break_entry["minutes"] - minutes
+                
+                # This should never happen due to validation above, but keep as safety
+                if new_break_mins < 0:
+                    print(f"Cannot reduce break below 0. Break was {mintues_to_hour_minute_str(break_entry['minutes'])}, tried to subtract {mintues_to_hour_minute_str(minutes)}.")
+                    return
+                
                 break_entry["minutes"] = new_break_mins
-        
-        # Regenerate info-log after backdating adjustments
-        regenerate_info_log(timer)
-        save(timer)
+                
+                # Backdate start_datetime_str and cycle_start to reflect earlier start
+                start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
+                new_start_dt = start_dt - timedelta(minutes=minutes)
+                timer.start_datetime_str = new_start_dt.strftime(DT_FORMAT)
+                timer.cycle_start_datetime_str = new_start_dt.strftime(DT_FORMAT)
+                
+                # Regenerate info-log to reflect the change
+                regenerate_info_log(timer)
+                save(timer)
     else:
-        # No backdating, but we may have added a break - regenerate if needed
+        # No time parameter, but we may have added a break - regenerate if needed
         timer = load()
         if timer.timeline and timer.timeline[-1]["type"] == "break":
             regenerate_info_log(timer)
@@ -251,24 +280,40 @@ def stop():
         case Status.Stopped:
             print("Timer already stopped.")
         case Status.Running | Status.Paused:
-            now = dt.now()
+            now = get_current_time()
             stop_time_str = now.strftime(DT_FORMAT)
             
-            # Calculate work duration
+            # Calculate work duration: total_cycle_time - paused_time
             if timer.status == Status.Paused:
-                cycle_minutes = timer.paused_minutes
+                # Add current pause duration
+                pause_start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
+                current_pause = delta_minutes(pause_start_dt, now)
+                total_paused = timer.paused_minutes + current_pause
             else:
-                start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
-                cycle_minutes = delta_minutes(start_dt, now) + timer.paused_minutes
+                total_paused = timer.paused_minutes
             
-            # Add work entry to timeline
+            # Total cycle time from first start to now
+            cycle_start_dt = dt.strptime(timer.cycle_start_datetime_str, DT_FORMAT)
+            total_cycle_time = delta_minutes(cycle_start_dt, now)
+            
+            # Work time = total cycle time - paused time
+            cycle_minutes = total_cycle_time - total_paused
+            
+            # Ensure we don't go below 0
+            if cycle_minutes < 0:
+                cycle_minutes = 0
+            
+            # Add work entry to timeline with work, paused, and total time
             timer.timeline.append({
                 "type": "work",
-                "minutes": cycle_minutes
+                "minutes": cycle_minutes,  # Actual work time
+                "paused_minutes": total_paused,  # Time paused
+                "total_minutes": total_cycle_time  # Total cycle time (work + paused)
             })
             
             timer.stop_datetime_str = stop_time_str
             timer.start_datetime_str = ""
+            timer.cycle_start_datetime_str = ""
             timer.paused_minutes = 0
             timer.status = Status.Stopped
 
@@ -283,8 +328,14 @@ def stop():
                 start_dt = dt.strptime(timer.day_start, DT_FORMAT)
                 # Sum all previous entries to get current cycle start
                 for i in range(len(timer.timeline) - 1):  # -1 because we just added the work entry
-                    start_dt += timedelta(minutes=timer.timeline[i]["minutes"])
-                end_dt = start_dt + timedelta(minutes=cycle_minutes)
+                    prev_entry = timer.timeline[i]
+                    if prev_entry["type"] == "work":
+                        # Use total_minutes for work entries (includes pauses)
+                        entry_duration = prev_entry.get("total_minutes", prev_entry["minutes"])
+                    else:
+                        entry_duration = prev_entry["minutes"]
+                    start_dt += timedelta(minutes=entry_duration)
+                end_dt = start_dt + timedelta(minutes=total_cycle_time)
                 
                 start_time_only = start_dt.strftime(TIME_ONLY_FORMAT)
                 end_time_only = end_dt.strftime(TIME_ONLY_FORMAT)
@@ -293,9 +344,18 @@ def stop():
                 day_diff = (end_dt.date() - start_dt.date()).days
                 day_indicator = f"  [+{day_diff} day]" if day_diff > 0 else ""
                 
-                log_info(f"[{start_time_only} => {end_time_only}] Work: {cycle_str} ({total_str}){day_indicator}")
+                # Include pause time if present
+                if total_paused > 0:
+                    paused_str = mintues_to_hour_minute_str(total_paused)
+                    log_info(f"[{start_time_only} => {end_time_only}] Work: {cycle_str}, Paused: {paused_str} ({total_str}){day_indicator}")
+                else:
+                    log_info(f"[{start_time_only} => {end_time_only}] Work: {cycle_str} ({total_str}){day_indicator}")
             else:
-                log_info(f"Work: {cycle_str} ({total_str})")
+                if total_paused > 0:
+                    paused_str = mintues_to_hour_minute_str(total_paused)
+                    log_info(f"Work: {cycle_str}, Paused: {paused_str} ({total_str})")
+                else:
+                    log_info(f"Work: {cycle_str} ({total_str})")
             
             save(timer)
             print_message_if_not_silent(timer, "Timer stopped.")
@@ -312,8 +372,8 @@ def pause():
         case Status.Stopped:
             print("Cannot pause stopped timer.")
         case Status.Running:
-            timer.paused_minutes = calculate_current_minutes(timer)
-            timer.start_datetime_str = ""
+            # Record when the pause started (in start_datetime_str for resume to calculate duration)
+            timer.start_datetime_str = get_current_time().strftime(DT_FORMAT)
             timer.status = Status.Paused
 
             log_debug("wt pause")
@@ -329,10 +389,8 @@ def check():
 
     running_minutes = 0
 
-    if timer.status == Status.Running:
+    if timer.status == Status.Running or timer.status == Status.Paused:
         running_minutes = calculate_current_minutes(timer)
-    elif timer.status == Status.Paused:
-        running_minutes = timer.paused_minutes
 
     total_minutes = running_minutes + timer.completed_minutes()
 
@@ -341,7 +399,7 @@ def check():
         case Status.Running:
             running_str = hour_minute_str_from_minutes(running_minutes)
         case Status.Paused:
-            running_str = hour_minute_str_from_minutes(timer.paused_minutes)
+            running_str = hour_minute_str_from_minutes(running_minutes)
         case Status.Stopped:
             running_str = "--:--"
         case _:
@@ -386,12 +444,12 @@ def history(log_type: str = None):
             for entry in timer.timeline:
                 cycle_start_dt += timedelta(minutes=entry["minutes"])
         else:
-            cycle_start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT) if timer.start_datetime_str else dt.now()
+            cycle_start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT) if timer.start_datetime_str else get_current_time()
         
         start_time_only = cycle_start_dt.strftime(TIME_ONLY_FORMAT)
         
         # Check if crossed midnight
-        now = dt.now()
+        now = get_current_time()
         day_diff = (now.date() - cycle_start_dt.date()).days
         day_indicator = f"  [+{day_diff} day]" if day_diff > 0 else ""
         
@@ -412,10 +470,12 @@ def report():
     # Calculate totals from timeline
     total_work_mins = 0
     total_break_mins = 0
+    total_paused_mins = 0
     
     for entry in timer.timeline:
         if entry["type"] == "work":
             total_work_mins += entry["minutes"]
+            total_paused_mins += entry.get("paused_minutes", 0)
         else:
             total_break_mins += entry["minutes"]
     
@@ -429,9 +489,12 @@ def report():
     start_dt = dt.strptime(timer.day_start, DT_FORMAT)
     end_dt = start_dt
     
-    # Add all timeline entries
+    # Add all timeline entries (using total_minutes for work to include paused time)
     for entry in timer.timeline:
-        end_dt += timedelta(minutes=entry["minutes"])
+        if entry["type"] == "work":
+            end_dt += timedelta(minutes=entry.get("total_minutes", entry["minutes"]))
+        else:
+            end_dt += timedelta(minutes=entry["minutes"])
     
     # Add current running time
     if timer.status in [Status.Running, Status.Paused]:
@@ -443,13 +506,14 @@ def report():
     end_time = end_dt.strftime(TIME_ONLY_FORMAT)
     work_str = mintues_to_hour_minute_str(total_work_mins)
     break_str = mintues_to_hour_minute_str(total_break_mins)
-    total_str = mintues_to_hour_minute_str(total_work_mins + total_break_mins)
+    paused_str = mintues_to_hour_minute_str(total_paused_mins)
+    total_str = mintues_to_hour_minute_str(total_work_mins + total_break_mins + total_paused_mins)
     
     # Check if crossed midnight
     day_diff = (end_dt.date() - start_dt.date()).days
     day_indicator = f" [+{day_diff} day]" if day_diff > 0 else ""
     
-    print(f"{date_str} | {start_time} -> {end_time} | Work: {work_str} | Break: {break_str} | Total: {total_str}{day_indicator}")
+    print(f"{date_str} | {start_time} -> {end_time} | Work: {work_str} | Break: {break_str} | Paused: {paused_str} | Total: {total_str}{day_indicator}")
 
 
 def mod_list():
@@ -464,7 +528,7 @@ def mod_list():
     if timer.day_start:
         current_time = dt.strptime(timer.day_start, DT_FORMAT)
     else:
-        current_time = dt.now()
+        current_time = get_current_time()
     
     running_total_work = 0
     
@@ -508,7 +572,11 @@ def mod_start(operation: str, time_str: str):
         print(f"Invalid operation: {operation}. Use 'add' or 'sub'")
         return
     
-    validate_timestring_or_quit(time_str)
+    # For mod operations, just parse as simple time string
+    if not time_str.isdigit():
+        print("Invalid time format. Should be digits only.")
+        return
+    
     minutes = string_time_to_minutes(time_str)
     
     # sub means earlier start (subtract time from timestamp)
@@ -565,7 +633,11 @@ def mod_duration(cycle_num_str: str, operation: str, time_str: str):
         print(f"Invalid operation: {operation}. Use 'add' or 'sub'")
         return
     
-    validate_timestring_or_quit(time_str)
+    # For mod operations, just parse as simple time string
+    if not time_str.isdigit():
+        print("Invalid time format. Should be digits only.")
+        return
+    
     minutes = string_time_to_minutes(time_str)
     
     # Get the entry to modify (0-indexed)
@@ -575,12 +647,20 @@ def mod_duration(cycle_num_str: str, operation: str, time_str: str):
     # Modify the duration
     if operation == "add":
         entry["minutes"] += minutes
+        # For work entries, also update total_minutes (paused stays the same)
+        if entry["type"] == "work":
+            paused = entry.get("paused_minutes", 0)
+            entry["total_minutes"] = entry["minutes"] + paused
     else:  # sub
         new_duration = entry["minutes"] - minutes
         if new_duration < 0:
             print(f"Error: Duration would be negative. Current: {mintues_to_hour_minute_str(entry['minutes'])}")
             return
         entry["minutes"] = new_duration
+        # For work entries, also update total_minutes (paused stays the same)
+        if entry["type"] == "work":
+            paused = entry.get("paused_minutes", 0)
+            entry["total_minutes"] = entry["minutes"] + paused
     
     # Regenerate info-log
     regenerate_info_log(timer)
@@ -681,29 +761,36 @@ def regenerate_info_log(timer: Timer):
         current_time = dt.strptime(timer.day_start, DT_FORMAT)
     else:
         # Fallback if no day_start
-        current_time = dt.now()
+        current_time = get_current_time()
     
     running_total = 0
     
     for entry in timer.timeline:
         if entry["type"] == "work":
             start_dt = current_time
-            duration_mins = entry["minutes"]
-            current_time += timedelta(minutes=duration_mins)
+            work_mins = entry["minutes"]  # Actual work time
+            paused_mins = entry.get("paused_minutes", 0)  # Paused time
+            total_mins = entry.get("total_minutes", work_mins + paused_mins)  # Total (backward compat)
+            current_time += timedelta(minutes=total_mins)  # Use total time for timestamps
             stop_dt = current_time
             
-            running_total += duration_mins
+            running_total += work_mins  # Accumulate only work time
             
             start_time_only = start_dt.strftime(TIME_ONLY_FORMAT)
             end_time_only = stop_dt.strftime(TIME_ONLY_FORMAT)
-            cycle_str = mintues_to_hour_minute_str(duration_mins)
+            cycle_str = mintues_to_hour_minute_str(work_mins)  # Show work time
             total_str = mintues_to_hour_minute_str(running_total)
             
             # Check if dates differ
             day_diff = (stop_dt.date() - start_dt.date()).days
             day_indicator = f"  [+{day_diff} day]" if day_diff > 0 else ""
             
-            log_info(f"[{start_time_only} => {end_time_only}] Work: {cycle_str} ({total_str}){day_indicator}")
+            # Include pause time if present
+            if paused_mins > 0:
+                paused_str = mintues_to_hour_minute_str(paused_mins)
+                log_info(f"[{start_time_only} => {end_time_only}] Work: {cycle_str}, Paused: {paused_str} ({total_str}){day_indicator}")
+            else:
+                log_info(f"[{start_time_only} => {end_time_only}] Work: {cycle_str} ({total_str}){day_indicator}")
         else:
             # Break entry
             start_dt = current_time
@@ -716,107 +803,6 @@ def regenerate_info_log(timer: Timer):
             cycle_str = mintues_to_hour_minute_str(duration_mins)
             
             log_info(f"[{start_time_only} => {end_time_only}] Break: {cycle_str}")
-
-
-def add(time: str):
-    timer = load()
-    validate_timestring_or_quit(time)
-    minutes = string_time_to_minutes(time)
-
-    if timer.status == Status.Stopped:
-        # When stopped, add to the last work cycle duration
-        if not timer.timeline or timer.timeline[-1]["type"] != "work":
-            print("Cannot add time when stopped with no work cycles.")
-            return
-        
-        timer.timeline[-1]["minutes"] += minutes
-        
-        # Regenerate info-log to reflect the change
-        regenerate_info_log(timer)
-        
-        log_debug(f"wt add {time}")
-        save(timer)
-        return
-
-    # For running/paused: backdate start (or day_start if first cycle)
-    if timer.status == Status.Running:
-        # If this is the first work cycle (no work entries in timeline yet)
-        # backdate day_start instead
-        has_work_cycles = any(entry["type"] == "work" for entry in timer.timeline)
-        
-        if not has_work_cycles:
-            # First cycle - backdate day_start
-            day_start_dt = dt.strptime(timer.day_start, DT_FORMAT)
-            new_day_start = day_start_dt - timedelta(minutes=minutes)
-            
-            # Validate: must be before now
-            if new_day_start >= dt.now():
-                print("Cannot add that much time.")
-                return
-            
-            timer.day_start = new_day_start.strftime(DT_FORMAT)
-            
-            # Also backdate start_datetime_str
-            start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
-            timer.start_datetime_str = (start_dt - timedelta(minutes=minutes)).strftime(DT_FORMAT)
-        else:
-            # Not first cycle - add to paused_minutes to accumulate time
-            timer.paused_minutes += minutes
-        
-        log_debug(f"wt add {time}")
-        save(timer)
-    elif timer.status == Status.Paused:
-        timer.paused_minutes += minutes
-        log_debug(f"wt add {time}")
-        save(timer)
-
-
-def sub(time: str):
-    timer = load()
-    validate_timestring_or_quit(time)
-    minutes = string_time_to_minutes(time)
-
-    if timer.status == Status.Stopped:
-        # When stopped, subtract from the last work cycle duration
-        if not timer.timeline or timer.timeline[-1]["type"] != "work":
-            print("Cannot subtract time when stopped with no work cycles.")
-            return
-        
-        last_work = timer.timeline[-1]
-        if last_work["minutes"] < minutes:
-            print(f"Cannot reduce work cycle to below 0 minutes. Current: {mintues_to_hour_minute_str(last_work['minutes'])}")
-            return
-        
-        last_work["minutes"] -= minutes
-        
-        # Regenerate info-log to reflect the change
-        regenerate_info_log(timer)
-        
-        log_debug(f"wt sub {time}")
-        save(timer)
-        return
-
-    # For running/paused: validate and subtract
-    current_minutes = calculate_current_minutes(timer)
-    if current_minutes < minutes:
-        print("Cannot reduce current minutes to below 0.")
-        return
-
-    if timer.status == Status.Running:
-        start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
-        new_start_dt = start_dt + timedelta(minutes=minutes)
-        
-        # Validate: new start must still be before now
-        if new_start_dt >= dt.now():
-            print(f"Cannot subtract that much time.")
-            return
-        
-        timer.start_datetime_str = new_start_dt.strftime(DT_FORMAT)
-    elif timer.status == Status.Paused:
-        timer.paused_minutes -= minutes
-
-    log_debug(f"wt sub {time}")
-    save(timer)
 
 
 def next_timer():
@@ -835,8 +821,10 @@ def next_timer():
 
     # Start next cycle (skip break calculation since we just added one)
     timer.stop_datetime_str = ""
-    now = dt.now()
+    now = get_current_time()
     timer.start_datetime_str = now.strftime(DT_FORMAT)
+    timer.cycle_start_datetime_str = now.strftime(DT_FORMAT)
+    timer.paused_minutes = 0
     timer.status = Status.Running
 
     log_debug("wt next")
@@ -873,9 +861,12 @@ def save_daily_report():
     start_dt = dt.strptime(timer.day_start, DT_FORMAT)
     end_dt = start_dt
     
-    # Add all timeline entries
+    # Add all timeline entries (using total_minutes for work to include paused time)
     for entry in timer.timeline:
-        end_dt += timedelta(minutes=entry["minutes"])
+        if entry["type"] == "work":
+            end_dt += timedelta(minutes=entry.get("total_minutes", entry["minutes"]))
+        else:
+            end_dt += timedelta(minutes=entry["minutes"])
     
     # Add current running time
     if timer.status in [Status.Running, Status.Paused]:
@@ -1019,14 +1010,6 @@ def print_help():
         check               Prints current and total time along with status.
                             Running wt without any command does the same.
 
-        add <time>          Add <time> to current cycle time (only when running/paused).
-                            Backdates start time to reflect actual work time.
-                            Time format: 1-4 digit HHMM, HMM, MM, or M.
-
-        sub <time>          Subtract <time> from current cycle time (only when running/paused).
-                            Forward-dates start time to reflect actual work time.
-                            Time format: 1-4 digit HHMM, HMM, MM, or M.
-
         log [type]          Show log of timer activity. Defaults to info log.
                             Use 'debug' to see command execution timestamps.
             types:
@@ -1094,7 +1077,9 @@ def delta_minutes(start: dt, now: dt) -> int:
 
 
 def total_with_paused_str(timer: Timer) -> str:
-    total = timer.paused_minutes + timer.completed_minutes()
+    # Current cycle work minutes (already excludes paused time)
+    current = calculate_current_minutes(timer)
+    total = current + timer.completed_minutes()
 
     return hour_minute_str_from_minutes(total)
 
@@ -1104,8 +1089,24 @@ def hour_minute_to_minutes(hours: int, minutes: int) -> int:
 
 
 def calculate_current_minutes(timer: Timer) -> int:
-    return timer.paused_minutes + delta_minutes(dt.strptime(
-        timer.start_datetime_str, DT_FORMAT), dt.now())
+    """Calculate work minutes for current cycle: total_elapsed - paused."""
+    if timer.status == Status.Stopped or not timer.cycle_start_datetime_str:
+        return 0
+    
+    # Total time since cycle started
+    cycle_start_dt = dt.strptime(timer.cycle_start_datetime_str, DT_FORMAT)
+    total_elapsed = delta_minutes(cycle_start_dt, get_current_time())
+    
+    if timer.status == Status.Paused:
+        # Add current pause duration to total paused
+        pause_start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
+        current_pause = delta_minutes(pause_start_dt, get_current_time())
+        total_paused = timer.paused_minutes + current_pause
+    else:
+        total_paused = timer.paused_minutes
+    
+    work_minutes = total_elapsed - total_paused
+    return max(0, work_minutes)  # Ensure non-negative
 
 
 def save(timer: Timer):
@@ -1120,6 +1121,7 @@ def save(timer: Timer):
         "mode": timer.mode,
         "timeline": timer.timeline,
         "day_start": timer.day_start,
+        "cycle_start_datetime_str": timer.cycle_start_datetime_str,
     }
 
     json_obj = json.dumps(data, indent=4)
@@ -1136,14 +1138,18 @@ def load() -> Timer:
     with open(output_file_path(), "r") as file:
         data = json.load(file)
 
+    # Backward compatibility: support old 'accumulated_minutes' field
+    paused = data.get("paused_minutes", data.get("accumulated_minutes", 0))
+
     return Timer(
         Status(data["status"]),
         data["start_datetime_str"],
         data["stop_datetime_str"],
-        data["paused_minutes"],
+        paused,
         data["mode"],
         data.get("timeline", []),
-        data.get("day_start", ""))
+        data.get("day_start", ""),
+        data.get("cycle_start_datetime_str", ""))
 
 
 def string_time_to_minutes(time: str) -> int:
@@ -1226,7 +1232,7 @@ def mintues_to_hour_minute_str(mins: int) -> str:
 
 
 def log_debug(msg: str):
-    timestamp = dt.now().strftime(DT_FORMAT)
+    timestamp = get_current_time().strftime(DT_FORMAT)
     with open(debug_log_file_path(), "a") as file:
         file.write(f"[{timestamp}] {msg}\n")
 

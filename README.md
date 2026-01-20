@@ -26,7 +26,7 @@ wt reset
 wt start
 ```
 
-This starts a new cycle. If a timer is paused, it resets and starts fresh.
+This starts a new cycle. If resuming from paused state, it continues the current cycle (accumulated pause time is tracked separately).
 
 **Pause the timer:**
 
@@ -34,11 +34,15 @@ This starts a new cycle. If a timer is paused, it resets and starts fresh.
 wt pause
 ```
 
+Pauses the current work cycle. You can resume with `wt start`. Paused time is tracked separately from work time.
+
 **Stop the timer:**
 
 ```bash
 wt stop
 ```
+
+Stops the current cycle and records it to the timeline. For cycles with pauses, the entry will show both work time and paused time.
 
 **Stop and start a new timer all in one:**
 
@@ -49,18 +53,6 @@ wt next
 This completes the current cycle and adds its time to your total.
 
 ### Manual Adjustments
-
-**Adjust current cycle time** using format `HHMM` (hours and minutes):
-
-```bash
-wt add 15     # Add 15 minutes to current cycle
-wt sub 120    # Subtract 1 hour 20 minutes from current cycle
-```
-
-- When **running/paused on the first cycle**: Backdates the day start time and current cycle start time
-- When **running/paused on subsequent cycles**: Adds/subtracts accumulated minutes without changing timestamps
-- When **stopped**: Modifies the last work cycle duration
-- **Note**: Break durations are never modified by `wt add` or `wt sub` - they are always preserved as originally recorded
 
 **Adjust day start time** (when you actually started working):
 
@@ -107,13 +99,24 @@ wt mod 2 drop     # Remove cycle 2 (merges adjacent work/break)
 
 ### Shortcuts
 
-Start and add time in one command (useful if you forgot to start):
+**Backdate the start of your first cycle** (useful if you forgot to start):
 
 ```bash
-wt start 15
+wt start 15  # On first cycle: backdates start by 15 minutes
 ```
 
-Reset, start, and add time all at once:
+**Reduce break time on subsequent cycles:**
+
+```bash
+wt start 10  # After stopping: reduces previous break by 10 minutes
+```
+
+For example:
+- Stop at 14:00, take a break
+- Start again at 14:20 (20 min break)
+- Run `wt start 10` to reduce break to 10 min (cycle starts at 14:10 instead)
+
+Reset and start with backdated time:
 
 ```bash
 wt restart 15
@@ -123,8 +126,7 @@ This is equivalent to:
 
 ```bash
 wt reset
-wt start
-wt add 15
+wt start 15  # Backdate start by 15 minutes
 ```
 
 ### Status & History
@@ -154,8 +156,11 @@ wt report
 This displays:
 
 - Date
-- Start and end times
-- Total work time
+- Start and end times (clock time, includes pauses)
+- Total work time (excludes pauses)
 - Total break time
-- Total elapsed time
+- Total paused time (time paused during work cycles)
+- Total elapsed time (work + break + pause)
 - Day crossing indicator (if you worked past midnight)
+
+Example: `2026-01-20 | 09:00 -> 17:30 | Work: 7h:30m | Break: 0h:45m | Paused: 0h:15m | Total: 8h:30m`
