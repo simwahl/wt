@@ -249,6 +249,43 @@ run_tests() {
         echo "$log"
     fi
     
+    # Test 9.5: Verify backdating actually changes start timestamp
+    print_test "Test 9.5: Backdating on first cycle changes start timestamp"
+    run_cmd "echo 'y' | $WT_CMD new" "create fresh timer"
+    run_cmd "$WT_CMD mode normal" "set mode to normal"
+    
+    # Record current time (HH:MM format)
+    local current_time=$(date +"%H:%M")
+    local current_hour=$(date +"%H")
+    local current_min=$(date +"%M")
+    
+    run_cmd "$WT_CMD start" "start timer"
+    run_cmd "$WT_CMD add 30" "add 30 minutes (backdate first cycle)"
+    run_cmd "$WT_CMD stop" "stop timer"
+    
+    # Extract start time from log
+    ((TESTS_RUN++))
+    local log_line=$($WT_CMD log 2>&1 | grep "Work:")
+    local start_timestamp=$(echo "$log_line" | grep -oE '[0-9]{2}:[0-9]{2}' | head -1)
+    
+    # Calculate expected time (30 min before current)
+    local expected_min=$((10#$current_min - 30))
+    local expected_hour=$current_hour
+    if [ $expected_min -lt 0 ]; then
+        expected_min=$((expected_min + 60))
+        expected_hour=$((10#$current_hour - 1))
+    fi
+    expected_hour=$(printf "%02d" $expected_hour)
+    expected_min=$(printf "%02d" $expected_min)
+    
+    # Start timestamp should be earlier than current time (approximately 30 min before)
+    if [[ "$start_timestamp" < "$current_time" ]]; then
+        print_pass "start timestamp ($start_timestamp) is earlier than current time ($current_time)"
+    else
+        print_fail "start timestamp ($start_timestamp) should be earlier than current time ($current_time)"
+        echo "$log_line"
+    fi
+    
     # Test 10: Restart command
     print_test "Test 10: Restart command"
     run_cmd "echo 'y' | $WT_CMD restart 15" "restart with 15 min"
@@ -269,6 +306,42 @@ run_tests() {
     
     run_cmd "$WT_CMD mod 1 drop" "drop first cycle"
     check_log_line_count 1 "Work:" "log has 1 cycle after drop"
+    
+    # Test 11.5: Add on subsequent cycle preserves break and wt log matches wt mod
+    print_test "Test 11.5: Add on subsequent cycle doesn't modify break"
+    run_cmd "echo 'y' | $WT_CMD restart 15" "restart with 15 min"
+    sleep 1
+    run_cmd "$WT_CMD stop" "stop"
+    sleep 2
+    run_cmd "$WT_CMD start" "start again (creates break)"
+    run_cmd "$WT_CMD add 5" "add 5 minutes to second cycle"
+    run_cmd "$WT_CMD stop" "stop second cycle"
+    
+    # Verify wt log and wt mod show same output
+    ((TESTS_RUN++))
+    local log_output=$($WT_CMD log 2>&1)
+    local mod_output=$($WT_CMD mod 2>&1 | grep -E "^[0-9]{2}\.")
+    local log_cycles=$(echo "$log_output" | grep -E "^\[")
+    local mod_cycles=$(echo "$mod_output" | sed 's/^[0-9]*\. //')
+    
+    if [ "$log_cycles" = "$mod_cycles" ]; then
+        print_pass "wt log and wt mod show identical cycles"
+    else
+        print_fail "wt log and wt mod differ"
+        echo "=== wt log ==="
+        echo "$log_cycles"
+        echo "=== wt mod ==="
+        echo "$mod_cycles"
+    fi
+    
+    # Verify break exists and is preserved
+    ((TESTS_RUN++))
+    if echo "$log_output" | grep -q "Break:"; then
+        print_pass "break preserved between cycles"
+    else
+        print_fail "break missing from log"
+        echo "$log_output"
+    fi
     
     # Test 12: Status and mode commands
     print_test "Test 12: Status and mode commands"

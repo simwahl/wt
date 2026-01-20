@@ -234,7 +234,15 @@ def start(start_time: str = None):
             else:
                 break_entry["minutes"] = new_break_mins
         
+        # Regenerate info-log after backdating adjustments
+        regenerate_info_log(timer)
         save(timer)
+    else:
+        # No backdating, but we may have added a break - regenerate if needed
+        timer = load()
+        if timer.timeline and timer.timeline[-1]["type"] == "break":
+            regenerate_info_log(timer)
+            save(timer)
 
 
 def stop():
@@ -751,27 +759,9 @@ def add(time: str):
             # Also backdate start_datetime_str
             start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
             timer.start_datetime_str = (start_dt - timedelta(minutes=minutes)).strftime(DT_FORMAT)
-            
-            # Adjust break duration if there is one
-            if timer.timeline and timer.timeline[-1]["type"] == "break":
-                # Break is now longer by `minutes`
-                timer.timeline[-1]["minutes"] += minutes
         else:
-            # Not first cycle - just backdate current start
-            start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
-            new_start_dt = start_dt - timedelta(minutes=minutes)
-            
-            # Validate: new start must be before now
-            if new_start_dt >= dt.now():
-                print(f"Cannot add that much time.")
-                return
-            
-            timer.start_datetime_str = new_start_dt.strftime(DT_FORMAT)
-            
-            # Adjust the last break if there is one
-            if timer.timeline and timer.timeline[-1]["type"] == "break":
-                # The break is now longer by `minutes`
-                timer.timeline[-1]["minutes"] += minutes
+            # Not first cycle - add to paused_minutes to accumulate time
+            timer.paused_minutes += minutes
         
         log_debug(f"wt add {time}")
         save(timer)
@@ -838,6 +828,9 @@ def next_timer():
         "type": "break",
         "minutes": 0
     })
+    
+    # Regenerate info-log to include the 0-minute break
+    regenerate_info_log(timer)
     save(timer)
 
     # Start next cycle (skip break calculation since we just added one)
