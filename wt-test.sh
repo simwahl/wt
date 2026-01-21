@@ -379,6 +379,33 @@ expected_report="2026-01-20 | 09:00 -> 09:45 | Work: 0h:35m | Break: 0h:00m | Pa
 actual_report=$($WT_CMD report)
 check_output "report shows correct totals" "$expected_report" "$actual_report"
 
+###############################################################################
+# Test 12: Restart with backdate
+###############################################################################
+print_test "12" "Restart with backdate"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+
+run_wt start
+mock_time "2026-01-20 09:30"
+run_wt stop
+
+mock_time "2026-01-20 10:00"
+run_wt restart 15
+
+mock_time "2026-01-20 10:20"
+run_wt stop
+
+expected_log="01. [09:45 => 10:20] Work: 0h:35m (0h:35m)"
+actual_log=$($WT_CMD log)
+check_output "restart with backdate creates fresh timer" "$expected_log" "$actual_log"
+
+expected_report="2026-01-20 | 09:45 -> 10:20 | Work: 0h:35m | Break: 0h:00m | Paused: 0h:00m | Total: 0h:35m"
+actual_report=$($WT_CMD report)
+check_output "report shows correct totals" "$expected_report" "$actual_report"
+
 echo ""
 echo "=========================================="
 echo "Test Results"
