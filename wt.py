@@ -1188,6 +1188,9 @@ def print_check_if_verbose(timer: Timer):
 
 # Return if user input yes, else quit.
 def yes_or_no_prompt(msg: str):
+    # Skip prompt if WT_SKIP_PROMPTS is set (for testing)
+    if os.environ.get("WT_SKIP_PROMPTS"):
+        return
     answer = input(f"{msg} y / n [n]: ")
     if answer.lower() != "y":
         quit()
