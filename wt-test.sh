@@ -96,7 +96,7 @@ check_output "log shows work and paused time" "$expected_log" "$actual_log"
 
 expected_report="2026-01-20 | 09:00 -> 09:50 | Work: 0h:40m | Break: 0h:00m | Paused: 0h:10m | Total: 0h:50m"
 actual_report=$($WT_CMD report)
-check_output "report shows totals" "$expected_report" "$actual_report"
+check_output "report shows correct totals" "$expected_report" "$actual_report"
 
 ###############################################################################
 # Test 2: Multiple work cycles with breaks
@@ -150,6 +150,10 @@ expected_log="01. [09:30 => 10:15] Work: 0h:45m (0h:45m)"
 actual_log=$($WT_CMD log)
 check_output "log shows backdated start time" "$expected_log" "$actual_log"
 
+expected_report="2026-01-20 | 09:30 -> 10:15 | Work: 0h:45m | Break: 0h:00m | Paused: 0h:00m | Total: 0h:45m"
+actual_report=$($WT_CMD report)
+check_output "report shows correct totals" "$expected_report" "$actual_report"
+
 ###############################################################################
 # Test 4: Start with break reduction on subsequent cycle
 ###############################################################################
@@ -174,6 +178,10 @@ expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
 actual_log=$($WT_CMD log)
 check_output "log shows reduced break time" "$expected_log" "$actual_log"
 
+expected_report="2026-01-20 | 09:00 -> 09:45 | Work: 0h:40m | Break: 0h:05m | Paused: 0h:00m | Total: 0h:45m"
+actual_report=$($WT_CMD report)
+check_output "report shows correct totals" "$expected_report" "$actual_report"
+
 ###############################################################################
 # Test 5: Mod command to adjust cycle durations
 ###############################################################################
@@ -193,6 +201,10 @@ expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)"
 actual_log=$($WT_CMD log)
 check_output "log shows modified duration" "$expected_log" "$actual_log"
 
+expected_report="2026-01-20 | 09:00 -> 09:20 | Work: 0h:20m | Break: 0h:00m | Paused: 0h:00m | Total: 0h:20m"
+actual_report=$($WT_CMD report)
+check_output "report shows correct totals" "$expected_report" "$actual_report"
+
 ###############################################################################
 # Test 6: Mod start to change day start time
 ###############################################################################
@@ -211,6 +223,10 @@ $WT_CMD mod start sub 60 > /dev/null 2>&1
 expected_log="01. [09:00 => 09:30] Work: 0h:30m (0h:30m)"
 actual_log=$($WT_CMD log)
 check_output "log shows adjusted start time" "$expected_log" "$actual_log"
+
+expected_report="2026-01-20 | 09:00 -> 09:30 | Work: 0h:30m | Break: 0h:00m | Paused: 0h:00m | Total: 0h:30m"
+actual_report=$($WT_CMD report)
+check_output "report shows correct totals" "$expected_report" "$actual_report"
 
 ###############################################################################
 # Test 7: Pause immediately after start
@@ -232,6 +248,10 @@ $WT_CMD stop > /dev/null 2>&1
 expected_log="01. [09:00 => 09:45] Work: 0h:15m, Paused: 0h:30m (0h:15m)"
 actual_log=$($WT_CMD log)
 check_output "log shows mostly paused cycle" "$expected_log" "$actual_log"
+
+expected_report="2026-01-20 | 09:00 -> 09:45 | Work: 0h:15m | Break: 0h:00m | Paused: 0h:30m | Total: 0h:45m"
+actual_report=$($WT_CMD report)
+check_output "report shows correct totals" "$expected_report" "$actual_report"
 
 ###############################################################################
 # Test 8: Multiple pause/resume in same cycle
@@ -260,6 +280,10 @@ expected_log="01. [09:00 => 09:45] Work: 0h:25m, Paused: 0h:20m (0h:25m)"
 actual_log=$($WT_CMD log)
 check_output "log shows accumulated paused time" "$expected_log" "$actual_log"
 
+expected_report="2026-01-20 | 09:00 -> 09:45 | Work: 0h:25m | Break: 0h:00m | Paused: 0h:20m | Total: 0h:45m"
+actual_report=$($WT_CMD report)
+check_output "report shows correct totals" "$expected_report" "$actual_report"
+
 ###############################################################################
 # Test 9: Next command (skip break)
 ###############################################################################
@@ -280,6 +304,10 @@ expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
 03. [09:20 => 09:40] Work: 0h:20m (0h:40m)"
 actual_log=$($WT_CMD log)
 check_output "log shows zero-minute break" "$expected_log" "$actual_log"
+
+expected_report="2026-01-20 | 09:00 -> 09:40 | Work: 0h:40m | Break: 0h:00m | Paused: 0h:00m | Total: 0h:40m"
+actual_report=$($WT_CMD report)
+check_output "report shows correct totals" "$expected_report" "$actual_report"
 
 ###############################################################################
 # Test 10: Drop a cycle
@@ -305,6 +333,38 @@ expected_log="01. [09:00 => 09:05] Break: 0h:05m
 02. [09:05 => 09:20] Work: 0h:15m (0h:15m)"
 actual_log=$($WT_CMD log)
 check_output "log shows remaining cycle with adjusted times" "$expected_log" "$actual_log"
+
+expected_report="2026-01-20 | 09:00 -> 09:20 | Work: 0h:15m | Break: 0h:05m | Paused: 0h:00m | Total: 0h:20m"
+actual_report=$($WT_CMD report)
+check_output "report shows correct totals" "$expected_report" "$actual_report"
+
+###############################################################################
+# Test 11: Drop break merges work cycles correctly
+###############################################################################
+print_test "11" "Drop break merges work cycles correctly"
+setup_test
+
+export WT_MOCK_TIME="2026-01-20 09:00"
+echo 'y' | $WT_CMD new > /dev/null 2>&1
+
+$WT_CMD start > /dev/null 2>&1
+export WT_MOCK_TIME="2026-01-20 09:20"
+$WT_CMD stop > /dev/null 2>&1
+
+export WT_MOCK_TIME="2026-01-20 09:30"
+$WT_CMD start > /dev/null 2>&1
+export WT_MOCK_TIME="2026-01-20 09:45"
+$WT_CMD stop > /dev/null 2>&1
+
+$WT_CMD mod 2 drop > /dev/null 2>&1
+
+expected_log="01. [09:00 => 09:45] Work: 0h:35m (0h:35m)"
+actual_log=$($WT_CMD log)
+check_output "merged cycle spans from first start to second end" "$expected_log" "$actual_log"
+
+expected_report="2026-01-20 | 09:00 -> 09:45 | Work: 0h:35m | Break: 0h:00m | Paused: 0h:00m | Total: 0h:35m"
+actual_report=$($WT_CMD report)
+check_output "report shows correct totals" "$expected_report" "$actual_report"
 
 echo ""
 echo "=========================================="
