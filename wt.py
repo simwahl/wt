@@ -683,15 +683,30 @@ def mod_drop(cycle_num_str: str):
         
         if has_prev_work and has_next_work:
             # Merge: combine the two work cycles
-            prev_work_mins = timer.timeline[entry_idx - 1]["minutes"]
-            next_work_mins = timer.timeline[entry_idx + 1]["minutes"]
-            merged_mins = prev_work_mins + next_work_mins
+            prev_work = timer.timeline[entry_idx - 1]
+            break_mins = timer.timeline[entry_idx]["minutes"]
+            next_work = timer.timeline[entry_idx + 1]
             
-            # Remove the break and next work, extend prev work
-            timer.timeline[entry_idx - 1]["minutes"] = merged_mins
+            # Sum up the work times
+            merged_work_mins = prev_work["minutes"] + next_work["minutes"]
+            
+            # Sum up paused times (with backward compatibility for entries without paused_minutes)
+            merged_paused_mins = prev_work.get("paused_minutes", 0) + next_work.get("paused_minutes", 0)
+            
+            # Sum up total times, including the break duration
+            prev_total = prev_work.get("total_minutes", prev_work["minutes"])
+            next_total = next_work.get("total_minutes", next_work["minutes"])
+            merged_total_mins = prev_total + break_mins + next_total
+            
+            # Update the previous work entry with merged values
+            timer.timeline[entry_idx - 1]["minutes"] = merged_work_mins
+            timer.timeline[entry_idx - 1]["paused_minutes"] = merged_paused_mins
+            timer.timeline[entry_idx - 1]["total_minutes"] = merged_total_mins
+            
+            # Remove the break and next work
             timer.timeline.pop(entry_idx + 1)  # Remove next work
             timer.timeline.pop(entry_idx)      # Remove break
-            merge_msg = f" (merged adjacent work cycles: {mintues_to_hour_minute_str(merged_mins)})"
+            merge_msg = f" (merged adjacent work cycles: {mintues_to_hour_minute_str(merged_work_mins)})"
         else:
             # Just remove the break
             timer.timeline.pop(entry_idx)
