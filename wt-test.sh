@@ -90,7 +90,7 @@ $WT_CMD start > /dev/null 2>&1
 export WT_MOCK_TIME="2026-01-20 09:50"
 $WT_CMD stop > /dev/null 2>&1
 
-expected_log="01. [09:00 => 09:50] Work: 0h:40m, Paused: 0h:10m (0h:40m)"
+expected_log="01. [09:00 => 09:50] Work: 0h:40m |10m| (0h:40m)"
 actual_log=$($WT_CMD log)
 check_output "log shows work and paused time" "$expected_log" "$actual_log"
 
@@ -245,7 +245,7 @@ $WT_CMD start > /dev/null 2>&1
 export WT_MOCK_TIME="2026-01-20 09:45"
 $WT_CMD stop > /dev/null 2>&1
 
-expected_log="01. [09:00 => 09:45] Work: 0h:15m, Paused: 0h:30m (0h:15m)"
+expected_log="01. [09:00 => 09:45] Work: 0h:15m |30m| (0h:15m)"
 actual_log=$($WT_CMD log)
 check_output "log shows mostly paused cycle" "$expected_log" "$actual_log"
 
@@ -276,7 +276,7 @@ $WT_CMD start > /dev/null 2>&1
 export WT_MOCK_TIME="2026-01-20 09:45"
 $WT_CMD stop > /dev/null 2>&1
 
-expected_log="01. [09:00 => 09:45] Work: 0h:25m, Paused: 0h:20m (0h:25m)"
+expected_log="01. [09:00 => 09:45] Work: 0h:25m |20m| (0h:25m)"
 actual_log=$($WT_CMD log)
 check_output "log shows accumulated paused time" "$expected_log" "$actual_log"
 

@@ -346,14 +346,12 @@ def stop():
                 
                 # Include pause time if present
                 if total_paused > 0:
-                    paused_str = mintues_to_hour_minute_str(total_paused)
-                    log_info(f"[{start_time_only} => {end_time_only}] Work: {cycle_str}, Paused: {paused_str} ({total_str}){day_indicator}")
+                    log_info(f"[{start_time_only} => {end_time_only}] Work: {cycle_str} |{total_paused:02d}m| ({total_str}){day_indicator}")
                 else:
                     log_info(f"[{start_time_only} => {end_time_only}] Work: {cycle_str} ({total_str}){day_indicator}")
             else:
                 if total_paused > 0:
-                    paused_str = mintues_to_hour_minute_str(total_paused)
-                    log_info(f"Work: {cycle_str}, Paused: {paused_str} ({total_str})")
+                    log_info(f"Work: {cycle_str} |{total_paused:02d}m| ({total_str})")
                 else:
                     log_info(f"Work: {cycle_str} ({total_str})")
             
@@ -388,9 +386,17 @@ def check():
     timer = load()
 
     running_minutes = 0
+    paused_minutes = 0
 
     if timer.status == Status.Running or timer.status == Status.Paused:
         running_minutes = calculate_current_minutes(timer)
+        # Calculate total paused time for current cycle
+        if timer.status == Status.Paused:
+            pause_start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
+            current_pause = delta_minutes(pause_start_dt, get_current_time())
+            paused_minutes = timer.paused_minutes + current_pause
+        else:
+            paused_minutes = timer.paused_minutes
 
     total_minutes = running_minutes + timer.completed_minutes()
 
@@ -408,8 +414,11 @@ def check():
 
     status_str = timer.status.upper()
     total_str = hour_minute_str_from_minutes(total_minutes)
+    
+    # Show paused minutes if any
+    paused_str = f" |{paused_minutes:02d}m|" if paused_minutes > 0 else ""
 
-    print(f"{running_str} {status_str} (total {total_str})")
+    print(f"{running_str} {status_str}{paused_str} ({total_str})")
 
 
 def history(log_type: str = None):
@@ -462,10 +471,18 @@ def history(log_type: str = None):
         # Line number is timeline length + 1 (for current active cycle)
         line_num = len(timer.timeline) + 1
         
-        if timer.status == Status.Running:
-            print(f"{line_num:02d}. [{start_time_only} => .....] Work: {current_str} ({total_str}){day_indicator}")
-        elif timer.status == Status.Paused:
-            print(f"{line_num:02d}. [{start_time_only} => .....] Work (paused): {current_str} ({total_str}){day_indicator}")
+        # Calculate paused minutes for current cycle
+        if timer.status == Status.Paused:
+            pause_start_dt = dt.strptime(timer.start_datetime_str, DT_FORMAT)
+            current_pause = delta_minutes(pause_start_dt, now)
+            total_paused = timer.paused_minutes + current_pause
+        else:
+            total_paused = timer.paused_minutes
+        
+        paused_str = f" |{total_paused:02d}m|" if total_paused > 0 else ""
+        status_suffix = " (paused)" if timer.status == Status.Paused else ""
+        
+        print(f"{line_num:02d}. [{start_time_only} => .....] Work{status_suffix}: {current_str}{paused_str} ({total_str}){day_indicator}")
 
 
 def report():
@@ -779,8 +796,7 @@ def regenerate_info_log(timer: Timer):
             
             # Include pause time if present
             if paused_mins > 0:
-                paused_str = mintues_to_hour_minute_str(paused_mins)
-                log_info(f"[{start_time_only} => {end_time_only}] Work: {cycle_str}, Paused: {paused_str} ({total_str}){day_indicator}")
+                log_info(f"[{start_time_only} => {end_time_only}] Work: {cycle_str} |{paused_mins:02d}m| ({total_str}){day_indicator}")
             else:
                 log_info(f"[{start_time_only} => {end_time_only}] Work: {cycle_str} ({total_str}){day_indicator}")
         else:
