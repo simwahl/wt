@@ -23,6 +23,19 @@ if [ -z "$WT_ROOT" ]; then
     exit 1
 fi
 
+# Skip prompts during testing (timer is in silent mode by default)
+export WT_SKIP_PROMPTS=1
+
+# Helper function to set mock time for testing
+mock_time() {
+    export WT_MOCK_TIME="$1"
+}
+
+# Helper function to run wt commands silently
+run_wt() {
+    $WT_CMD "$@" > /dev/null 2>&1
+}
+
 print_test() {
     echo -e "${YELLOW}TEST $1: $2${NC}"
 }
@@ -76,19 +89,19 @@ echo ""
 print_test "1" "Basic pause/resume workflow"
 setup_test
 
-export WT_MOCK_TIME="2026-01-20 09:00"
-echo 'y' | $WT_CMD new > /dev/null 2>&1
+mock_time "2026-01-20 09:00"
+run_wt new
 
-$WT_CMD start > /dev/null 2>&1
+run_wt start
 
-export WT_MOCK_TIME="2026-01-20 09:25"
-$WT_CMD pause > /dev/null 2>&1
+mock_time "2026-01-20 09:25"
+run_wt pause
 
-export WT_MOCK_TIME="2026-01-20 09:35"
-$WT_CMD start > /dev/null 2>&1
+mock_time "2026-01-20 09:35"
+run_wt start
 
-export WT_MOCK_TIME="2026-01-20 09:50"
-$WT_CMD stop > /dev/null 2>&1
+mock_time "2026-01-20 09:50"
+run_wt stop
 
 expected_log="01. [09:00 => 09:50] Work: 0h:40m |10m| (0h:40m)"
 actual_log=$($WT_CMD log)
@@ -104,22 +117,22 @@ check_output "report shows correct totals" "$expected_report" "$actual_report"
 print_test "2" "Multiple work cycles with breaks"
 setup_test
 
-export WT_MOCK_TIME="2026-01-20 09:00"
-echo 'y' | $WT_CMD new > /dev/null 2>&1
+mock_time "2026-01-20 09:00"
+run_wt new
 
-$WT_CMD start > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 09:20"
-$WT_CMD stop > /dev/null 2>&1
+run_wt start
+mock_time "2026-01-20 09:20"
+run_wt stop
 
-export WT_MOCK_TIME="2026-01-20 09:25"
-$WT_CMD start > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 09:40"
-$WT_CMD stop > /dev/null 2>&1
+mock_time "2026-01-20 09:25"
+run_wt start
+mock_time "2026-01-20 09:40"
+run_wt stop
 
-export WT_MOCK_TIME="2026-01-20 09:50"
-$WT_CMD start > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 10:05"
-$WT_CMD stop > /dev/null 2>&1
+mock_time "2026-01-20 09:50"
+run_wt start
+mock_time "2026-01-20 10:05"
+run_wt stop
 
 expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
 02. [09:20 => 09:25] Break: 0h:05m
@@ -139,12 +152,12 @@ check_output "report shows correct totals" "$expected_report" "$actual_report"
 print_test "3" "Start with backdate on first cycle"
 setup_test
 
-export WT_MOCK_TIME="2026-01-20 10:00"
-echo 'y' | $WT_CMD new > /dev/null 2>&1
+mock_time "2026-01-20 10:00"
+run_wt new
 
-$WT_CMD start 30 > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 10:15"
-$WT_CMD stop > /dev/null 2>&1
+run_wt start 30
+mock_time "2026-01-20 10:15"
+run_wt stop
 
 expected_log="01. [09:30 => 10:15] Work: 0h:45m (0h:45m)"
 actual_log=$($WT_CMD log)
@@ -160,17 +173,17 @@ check_output "report shows correct totals" "$expected_report" "$actual_report"
 print_test "4" "Start with break reduction on subsequent cycle"
 setup_test
 
-export WT_MOCK_TIME="2026-01-20 09:00"
-echo 'y' | $WT_CMD new > /dev/null 2>&1
+mock_time "2026-01-20 09:00"
+run_wt new
 
-$WT_CMD start > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 09:20"
-$WT_CMD stop > /dev/null 2>&1
+run_wt start
+mock_time "2026-01-20 09:20"
+run_wt stop
 
-export WT_MOCK_TIME="2026-01-20 09:35"
-$WT_CMD start 10 > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 09:45"
-$WT_CMD stop > /dev/null 2>&1
+mock_time "2026-01-20 09:35"
+run_wt start 10
+mock_time "2026-01-20 09:45"
+run_wt stop
 
 expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
 02. [09:20 => 09:25] Break: 0h:05m
@@ -188,14 +201,14 @@ check_output "report shows correct totals" "$expected_report" "$actual_report"
 print_test "5" "Mod command to adjust cycle durations"
 setup_test
 
-export WT_MOCK_TIME="2026-01-20 09:00"
-echo 'y' | $WT_CMD new > /dev/null 2>&1
+mock_time "2026-01-20 09:00"
+run_wt new
 
-$WT_CMD start > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 09:05"
-$WT_CMD stop > /dev/null 2>&1
+run_wt start
+mock_time "2026-01-20 09:05"
+run_wt stop
 
-$WT_CMD mod 1 add 15 > /dev/null 2>&1
+run_wt mod 1 add 15
 
 expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)"
 actual_log=$($WT_CMD log)
@@ -211,14 +224,14 @@ check_output "report shows correct totals" "$expected_report" "$actual_report"
 print_test "6" "Mod start to change day start time"
 setup_test
 
-export WT_MOCK_TIME="2026-01-20 10:00"
-echo 'y' | $WT_CMD new > /dev/null 2>&1
+mock_time "2026-01-20 10:00"
+run_wt new
 
-$WT_CMD start > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 10:30"
-$WT_CMD stop > /dev/null 2>&1
+run_wt start
+mock_time "2026-01-20 10:30"
+run_wt stop
 
-$WT_CMD mod start sub 60 > /dev/null 2>&1
+run_wt mod start sub 60
 
 expected_log="01. [09:00 => 09:30] Work: 0h:30m (0h:30m)"
 actual_log=$($WT_CMD log)
@@ -234,16 +247,16 @@ check_output "report shows correct totals" "$expected_report" "$actual_report"
 print_test "7" "Pause immediately after start"
 setup_test
 
-export WT_MOCK_TIME="2026-01-20 09:00"
-echo 'y' | $WT_CMD new > /dev/null 2>&1
+mock_time "2026-01-20 09:00"
+run_wt new
 
-$WT_CMD start > /dev/null 2>&1
-$WT_CMD pause > /dev/null 2>&1
+run_wt start
+run_wt pause
 
-export WT_MOCK_TIME="2026-01-20 09:30"
-$WT_CMD start > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 09:45"
-$WT_CMD stop > /dev/null 2>&1
+mock_time "2026-01-20 09:30"
+run_wt start
+mock_time "2026-01-20 09:45"
+run_wt stop
 
 expected_log="01. [09:00 => 09:45] Work: 0h:15m |30m| (0h:15m)"
 actual_log=$($WT_CMD log)
@@ -259,22 +272,22 @@ check_output "report shows correct totals" "$expected_report" "$actual_report"
 print_test "8" "Multiple pause/resume in same cycle"
 setup_test
 
-export WT_MOCK_TIME="2026-01-20 09:00"
-echo 'y' | $WT_CMD new > /dev/null 2>&1
+mock_time "2026-01-20 09:00"
+run_wt new
 
-$WT_CMD start > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 09:10"
-$WT_CMD pause > /dev/null 2>&1
+run_wt start
+mock_time "2026-01-20 09:10"
+run_wt pause
 
-export WT_MOCK_TIME="2026-01-20 09:20"
-$WT_CMD start > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 09:25"
-$WT_CMD pause > /dev/null 2>&1
+mock_time "2026-01-20 09:20"
+run_wt start
+mock_time "2026-01-20 09:25"
+run_wt pause
 
-export WT_MOCK_TIME="2026-01-20 09:35"
-$WT_CMD start > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 09:45"
-$WT_CMD stop > /dev/null 2>&1
+mock_time "2026-01-20 09:35"
+run_wt start
+mock_time "2026-01-20 09:45"
+run_wt stop
 
 expected_log="01. [09:00 => 09:45] Work: 0h:25m |20m| (0h:25m)"
 actual_log=$($WT_CMD log)
@@ -290,14 +303,14 @@ check_output "report shows correct totals" "$expected_report" "$actual_report"
 print_test "9" "Next command skips break"
 setup_test
 
-export WT_MOCK_TIME="2026-01-20 09:00"
-echo 'y' | $WT_CMD new > /dev/null 2>&1
+mock_time "2026-01-20 09:00"
+run_wt new
 
-$WT_CMD start > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 09:20"
-$WT_CMD next > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 09:40"
-$WT_CMD stop > /dev/null 2>&1
+run_wt start
+mock_time "2026-01-20 09:20"
+run_wt next
+mock_time "2026-01-20 09:40"
+run_wt stop
 
 expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
 02. [09:20 => 09:20] Break: 0h:00m
@@ -315,19 +328,19 @@ check_output "report shows correct totals" "$expected_report" "$actual_report"
 print_test "10" "Drop a cycle"
 setup_test
 
-export WT_MOCK_TIME="2026-01-20 09:00"
-echo 'y' | $WT_CMD new > /dev/null 2>&1
+mock_time "2026-01-20 09:00"
+run_wt new
 
-$WT_CMD start > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 09:20"
-$WT_CMD stop > /dev/null 2>&1
+run_wt start
+mock_time "2026-01-20 09:20"
+run_wt stop
 
-export WT_MOCK_TIME="2026-01-20 09:25"
-$WT_CMD start > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 09:40"
-$WT_CMD stop > /dev/null 2>&1
+mock_time "2026-01-20 09:25"
+run_wt start
+mock_time "2026-01-20 09:40"
+run_wt stop
 
-$WT_CMD mod 1 drop > /dev/null 2>&1
+run_wt mod 1 drop
 
 expected_log="01. [09:00 => 09:05] Break: 0h:05m
 02. [09:05 => 09:20] Work: 0h:15m (0h:15m)"
@@ -344,19 +357,19 @@ check_output "report shows correct totals" "$expected_report" "$actual_report"
 print_test "11" "Drop break merges work cycles correctly"
 setup_test
 
-export WT_MOCK_TIME="2026-01-20 09:00"
-echo 'y' | $WT_CMD new > /dev/null 2>&1
+mock_time "2026-01-20 09:00"
+run_wt new
 
-$WT_CMD start > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 09:20"
-$WT_CMD stop > /dev/null 2>&1
+run_wt start
+mock_time "2026-01-20 09:20"
+run_wt stop
 
-export WT_MOCK_TIME="2026-01-20 09:30"
-$WT_CMD start > /dev/null 2>&1
-export WT_MOCK_TIME="2026-01-20 09:45"
-$WT_CMD stop > /dev/null 2>&1
+mock_time "2026-01-20 09:30"
+run_wt start
+mock_time "2026-01-20 09:45"
+run_wt stop
 
-$WT_CMD mod 2 drop > /dev/null 2>&1
+run_wt mod 2 drop
 
 expected_log="01. [09:00 => 09:45] Work: 0h:35m (0h:35m)"
 actual_log=$($WT_CMD log)
