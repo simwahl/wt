@@ -39,22 +39,33 @@ const (
 
 // TimelineEntry represents a work or break cycle
 type TimelineEntry struct {
-	Type          string `json:"type"`
-	Minutes       int    `json:"minutes"`
-	PausedMinutes int    `json:"paused_minutes,omitempty"`
-	TotalMinutes  int    `json:"total_minutes,omitempty"`
+	Type          string `json:"type"`                     // "work" or "break"
+	Minutes       int    `json:"minutes"`                  // Duration of actual work (excludes paused time) or break
+	PausedMinutes int    `json:"paused_minutes,omitempty"` // Time spent paused during this work cycle (only for work entries)
+}
+
+// ElapsedMinutes returns the elapsed clock time for this entry (work + paused for work entries)
+func (e *TimelineEntry) ElapsedMinutes() int {
+	return e.Minutes + e.PausedMinutes
+}
+
+// Duration returns the elapsed time for this entry (used for timestamp calculations)
+func (e *TimelineEntry) Duration() int {
+	if e.Type == "work" {
+		return e.ElapsedMinutes()
+	}
+	return e.Minutes
 }
 
 // Timer represents the timer state
 type Timer struct {
-	Status                string          `json:"status"`
-	StartDatetimeStr      string          `json:"start_datetime_str"`
-	StopDatetimeStr       string          `json:"stop_datetime_str"`
-	PausedMinutes         int             `json:"paused_minutes"`
-	Mode                  string          `json:"mode"`
-	Timeline              []TimelineEntry `json:"timeline"`
-	DayStart              string          `json:"day_start"`
-	CycleStartDatetimeStr string          `json:"cycle_start_datetime_str"`
+	Status          string          `json:"status"`            // Current state: "stopped", "running", or "paused"
+	PauseStartStr   string          `json:"pause_start_str"`   // When the current pause began (if paused)
+	StopDatetimeStr string          `json:"stop_datetime_str"` // Last stop time (used to calculate break duration)
+	PausedMinutes   int             `json:"paused_minutes"`    // Accumulated pause time in current active cycle
+	Mode            string          `json:"mode"`              // Output verbosity: "silent", "normal", or "verbose"
+	Timeline        []TimelineEntry `json:"timeline"`          // Completed work and break cycles
+	DayStart        string          `json:"day_start"`         // When the work day started (all timestamps computed from this)
 }
 
 // UnmarshalJSON implements custom unmarshaling for backward compatibility
@@ -77,6 +88,17 @@ func (t *Timer) UnmarshalJSON(data []byte) error {
 	}
 
 	return nil
+}
+
+// CurrentCycleStart returns the start time of the current (or next) cycle
+// by calculating DayStart + sum of all timeline entry durations.
+// This is the single source of truth for cycle start times.
+func (t *Timer) CurrentCycleStart() time.Time {
+	start, _ := parseTime(t.DayStart)
+	for _, entry := range t.Timeline {
+		start = start.Add(time.Duration(entry.Duration()) * time.Minute)
+	}
+	return start
 }
 
 // CompletedMinutes returns total work minutes from timeline
@@ -440,16 +462,16 @@ func isDigits(s string) bool {
 }
 
 func calculateCurrentMinutes(timer *Timer) int {
-	if timer.Status == StatusStopped || timer.CycleStartDatetimeStr == "" {
+	if timer.Status == StatusStopped {
 		return 0
 	}
 
-	cycleStart, _ := parseTime(timer.CycleStartDatetimeStr)
+	cycleStart := timer.CurrentCycleStart()
 	totalElapsed := deltaMinutes(cycleStart, getCurrentTime())
 
 	var totalPaused int
 	if timer.Status == StatusPaused {
-		pauseStart, _ := parseTime(timer.StartDatetimeStr)
+		pauseStart, _ := parseTime(timer.PauseStartStr)
 		currentPause := deltaMinutes(pauseStart, getCurrentTime())
 		totalPaused = timer.PausedMinutes + currentPause
 	} else {
@@ -581,20 +603,7 @@ func saveDailyReport(timer *Timer) error {
 
 	// Calculate end time
 	startDt, _ := parseTime(timer.DayStart)
-	endDt := startDt
-
-	// Add all timeline entries (using total_minutes for work to include paused time)
-	for _, entry := range timer.Timeline {
-		if entry.Type == "work" {
-			totalMins := entry.TotalMinutes
-			if totalMins == 0 {
-				totalMins = entry.Minutes
-			}
-			endDt = endDt.Add(time.Duration(totalMins) * time.Minute)
-		} else {
-			endDt = endDt.Add(time.Duration(entry.Minutes) * time.Minute)
-		}
-	}
+	endDt := timer.CurrentCycleStart()
 
 	// Add current running time
 	if timer.Status == StatusRunning || timer.Status == StatusPaused {
@@ -650,7 +659,7 @@ func startCmd(timer *Timer, startTime string) error {
 	case StatusPaused:
 		message = "Resuming timer."
 		// Calculate pause duration and add to paused_minutes
-		pauseStart, _ := parseTime(timer.StartDatetimeStr)
+		pauseStart, _ := parseTime(timer.PauseStartStr)
 		pauseDuration := deltaMinutes(pauseStart, getCurrentTime())
 		timer.PausedMinutes += pauseDuration
 	case StatusStopped:
@@ -693,16 +702,11 @@ func startCmd(timer *Timer, startTime string) error {
 
 	timer.StopDatetimeStr = ""
 	now := getCurrentTime()
-	timer.StartDatetimeStr = now.Format(DT_FORMAT)
+	timer.PauseStartStr = now.Format(DT_FORMAT)
 
 	// If this is the first cycle of the day, set day_start
 	if timer.DayStart == "" {
-		timer.DayStart = timer.StartDatetimeStr
-	}
-
-	// If starting a new cycle (not resuming from pause), set cycle_start
-	if timer.Status == StatusStopped {
-		timer.CycleStartDatetimeStr = timer.StartDatetimeStr
+		timer.DayStart = timer.PauseStartStr
 	}
 
 	timer.Status = StatusRunning
@@ -725,31 +729,24 @@ func startCmd(timer *Timer, startTime string) error {
 		backdateMinutes, _ := stringTimeToMinutes(startTime)
 
 		if isFirstCycle {
-			// Backdate the day_start, start_datetime_str, and cycle_start
+			// Backdate the day_start and pause_start_str
 			dayStart, _ := parseTime(timer.DayStart)
 			timer.DayStart = dayStart.Add(-time.Duration(backdateMinutes) * time.Minute).Format(DT_FORMAT)
 
-			startDt, _ := parseTime(timer.StartDatetimeStr)
-			timer.StartDatetimeStr = startDt.Add(-time.Duration(backdateMinutes) * time.Minute).Format(DT_FORMAT)
-
-			cycleStart, _ := parseTime(timer.CycleStartDatetimeStr)
-			timer.CycleStartDatetimeStr = cycleStart.Add(-time.Duration(backdateMinutes) * time.Minute).Format(DT_FORMAT)
+			pauseStartDt, _ := parseTime(timer.PauseStartStr)
+			timer.PauseStartStr = pauseStartDt.Add(-time.Duration(backdateMinutes) * time.Minute).Format(DT_FORMAT)
 
 			if err := save(timer); err != nil {
 				return err
 			}
 		} else {
-			// Reduce the last break duration and backdate cycle start
+			// Reduce the last break duration to backdate cycle start
 			lastIdx := len(timer.Timeline) - 1
 			timer.Timeline[lastIdx].Minutes -= backdateMinutes
 
-			// Backdate the cycle start
-			cycleStart, _ := parseTime(timer.CycleStartDatetimeStr)
-			timer.CycleStartDatetimeStr = cycleStart.Add(-time.Duration(backdateMinutes) * time.Minute).Format(DT_FORMAT)
-
-			// Also backdate start_datetime_str
-			startDt, _ := parseTime(timer.StartDatetimeStr)
-			timer.StartDatetimeStr = startDt.Add(-time.Duration(backdateMinutes) * time.Minute).Format(DT_FORMAT)
+			// Also backdate pause_start_str
+			pauseStartDt, _ := parseTime(timer.PauseStartStr)
+			timer.PauseStartStr = pauseStartDt.Add(-time.Duration(backdateMinutes) * time.Minute).Format(DT_FORMAT)
 
 			if err := save(timer); err != nil {
 				return err
@@ -772,13 +769,12 @@ func stopCmd(timer *Timer) error {
 		// Calculate work duration: total_cycle_time - paused_time
 		totalPaused := timer.PausedMinutes
 		if timer.Status == StatusPaused {
-			pauseStart, _ := parseTime(timer.StartDatetimeStr)
+			pauseStart, _ := parseTime(timer.PauseStartStr)
 			currentPause := deltaMinutes(pauseStart, now)
 			totalPaused += currentPause
 		}
 
-		// Total cycle time from first start to now
-		cycleStart, _ := parseTime(timer.CycleStartDatetimeStr)
+		cycleStart := timer.CurrentCycleStart()
 		totalCycleTime := deltaMinutes(cycleStart, now)
 
 		// Work time = total cycle time - paused time
@@ -795,7 +791,6 @@ func stopCmd(timer *Timer) error {
 			lastWork := &timer.Timeline[len(timer.Timeline)-1]
 			lastWork.Minutes += cycleMinutes
 			lastWork.PausedMinutes += totalPaused
-			lastWork.TotalMinutes += totalCycleTime
 			mergedIntoExisting = true
 		}
 
@@ -804,13 +799,11 @@ func stopCmd(timer *Timer) error {
 				Type:          "work",
 				Minutes:       cycleMinutes,
 				PausedMinutes: totalPaused,
-				TotalMinutes:  totalCycleTime,
 			})
 		}
 
 		timer.StopDatetimeStr = stopTimeStr
-		timer.StartDatetimeStr = ""
-		timer.CycleStartDatetimeStr = ""
+		timer.PauseStartStr = ""
 		timer.PausedMinutes = 0
 		timer.Status = StatusStopped
 
@@ -835,7 +828,7 @@ func pauseCmd(timer *Timer) error {
 	case StatusStopped:
 		fmt.Println("Cannot pause stopped timer.")
 	case StatusRunning:
-		timer.StartDatetimeStr = getCurrentTime().Format(DT_FORMAT)
+		timer.PauseStartStr = getCurrentTime().Format(DT_FORMAT)
 		timer.Status = StatusPaused
 
 		logDebug("wt pause")
@@ -861,7 +854,7 @@ func checkCmd(timer *Timer) error {
 		pausedMinutes = timer.PausedMinutes
 
 		if timer.Status == StatusPaused {
-			pauseStart, _ := parseTime(timer.StartDatetimeStr)
+			pauseStart, _ := parseTime(timer.PauseStartStr)
 			currentPause := deltaMinutes(pauseStart, getCurrentTime())
 			pausedMinutes += currentPause
 		}
@@ -942,14 +935,10 @@ func historyCmd(timer *Timer, logType string) error {
 	for _, entry := range timer.Timeline {
 		if entry.Type == "work" {
 			workMins := entry.Minutes
-			totalMins := entry.TotalMinutes
-			if totalMins == 0 {
-				totalMins = entry.Minutes
-			}
 			pausedMins := entry.PausedMinutes
 
 			startTime := currentTime
-			endTime := currentTime.Add(time.Duration(totalMins) * time.Minute)
+			endTime := currentTime.Add(time.Duration(entry.Duration()) * time.Minute)
 
 			runningTotal += workMins
 
@@ -1004,12 +993,11 @@ func historyCmd(timer *Timer, logType string) error {
 		currentStr := minutesToHourMinuteStr(currentMinutes)
 		totalStr := minutesToHourMinuteStr(totalMinutes)
 
-		// Use actual cycle start time, not calculated from timeline
-		cycleStart, _ := parseTime(timer.CycleStartDatetimeStr)
-		startTimeOnly := cycleStart.Format(TIME_ONLY_FORMAT)
+		// Use calculated start time from timeline
+		startTimeOnly := currentTime.Format(TIME_ONLY_FORMAT)
 
 		now := getCurrentTime()
-		dayDiff := int(now.Sub(cycleStart).Hours() / 24)
+		dayDiff := int(now.Sub(currentTime).Hours() / 24)
 		dayIndicator := ""
 		if dayDiff > 0 {
 			dayIndicator = fmt.Sprintf("  [+%d day]", dayDiff)
@@ -1018,7 +1006,7 @@ func historyCmd(timer *Timer, logType string) error {
 		// Calculate paused minutes for current cycle
 		totalPaused := timer.PausedMinutes
 		if timer.Status == StatusPaused {
-			pauseStart, _ := parseTime(timer.StartDatetimeStr)
+			pauseStart, _ := parseTime(timer.PauseStartStr)
 			currentPause := deltaMinutes(pauseStart, now)
 			totalPaused += currentPause
 		}
@@ -1068,7 +1056,7 @@ func reportCmd(timer *Timer) error {
 
 		// Add current cycle's paused time
 		if timer.Status == StatusPaused {
-			pauseStart, _ := parseTime(timer.StartDatetimeStr)
+			pauseStart, _ := parseTime(timer.PauseStartStr)
 			currentPause := deltaMinutes(pauseStart, getCurrentTime())
 			totalPausedMins += timer.PausedMinutes + currentPause
 		} else {
@@ -1078,20 +1066,7 @@ func reportCmd(timer *Timer) error {
 
 	// Calculate end time
 	startDt, _ := parseTime(timer.DayStart)
-	endDt := startDt
-
-	// Add all timeline entries (using total_minutes for work to include paused time)
-	for _, entry := range timer.Timeline {
-		if entry.Type == "work" {
-			totalMins := entry.TotalMinutes
-			if totalMins == 0 {
-				totalMins = entry.Minutes
-			}
-			endDt = endDt.Add(time.Duration(totalMins) * time.Minute)
-		} else {
-			endDt = endDt.Add(time.Duration(entry.Minutes) * time.Minute)
-		}
-	}
+	endDt := timer.CurrentCycleStart()
 
 	// Add current running time
 	if timer.Status == StatusRunning || timer.Status == StatusPaused {
@@ -1162,8 +1137,8 @@ func modStartCmd(timer *Timer, operation, timeStr string) error {
 
 	timer.DayStart = newDayStart.Format(DT_FORMAT)
 
-	// If currently running the first work cycle, also adjust timestamps
-	if (timer.Status == StatusRunning || timer.Status == StatusPaused) && timer.StartDatetimeStr != "" {
+	// If currently running the first work cycle, also adjust PauseStartStr
+	if (timer.Status == StatusRunning || timer.Status == StatusPaused) && timer.PauseStartStr != "" {
 		hasWorkCycles := false
 		for _, entry := range timer.Timeline {
 			if entry.Type == "work" {
@@ -1173,20 +1148,16 @@ func modStartCmd(timer *Timer, operation, timeStr string) error {
 		}
 
 		if !hasWorkCycles {
-			startDt, _ := parseTime(timer.StartDatetimeStr)
-			cycleStart, _ := parseTime(timer.CycleStartDatetimeStr)
+			pauseStartDt, _ := parseTime(timer.PauseStartStr)
 
-			var newStart, newCycleStart time.Time
+			var newPauseStart time.Time
 			if operation == "sub" {
-				newStart = startDt.Add(-time.Duration(minutes) * time.Minute)
-				newCycleStart = cycleStart.Add(-time.Duration(minutes) * time.Minute)
+				newPauseStart = pauseStartDt.Add(-time.Duration(minutes) * time.Minute)
 			} else {
-				newStart = startDt.Add(time.Duration(minutes) * time.Minute)
-				newCycleStart = cycleStart.Add(time.Duration(minutes) * time.Minute)
+				newPauseStart = pauseStartDt.Add(time.Duration(minutes) * time.Minute)
 			}
 
-			timer.StartDatetimeStr = newStart.Format(DT_FORMAT)
-			timer.CycleStartDatetimeStr = newCycleStart.Format(DT_FORMAT)
+			timer.PauseStartStr = newPauseStart.Format(DT_FORMAT)
 		}
 	}
 
@@ -1246,10 +1217,6 @@ func modDurationCmd(timer *Timer, cycleNumStr, operation, timeStr string) error 
 
 	if operation == "add" {
 		entry.Minutes += minutes
-		if entry.Type == "work" {
-			paused := entry.PausedMinutes
-			entry.TotalMinutes = entry.Minutes + paused
-		}
 	} else {
 		newDuration := entry.Minutes - minutes
 		if newDuration < 0 {
@@ -1257,10 +1224,6 @@ func modDurationCmd(timer *Timer, cycleNumStr, operation, timeStr string) error 
 			return nil
 		}
 		entry.Minutes = newDuration
-		if entry.Type == "work" {
-			paused := entry.PausedMinutes
-			entry.TotalMinutes = entry.Minutes + paused
-		}
 	}
 
 	logDebug(fmt.Sprintf("wt mod %s %s %s", cycleNumStr, operation, timeStr))
@@ -1365,7 +1328,6 @@ func modPauseCmd(timer *Timer, cycleNumStr, operation, timeStr string) error {
 		}
 
 		entry.PausedMinutes = newPaused
-		entry.TotalMinutes = entry.Minutes + newPaused
 
 		logDebug(fmt.Sprintf("wt mod %s pause %s %s", cycleNumStr, operation, timeStr))
 		if err := save(timer); err != nil {
@@ -1410,19 +1372,10 @@ func modDropCmd(timer *Timer, cycleNumStr string) error {
 		if hasPrevWork && isCurrentlyActive && isLastBreak {
 			prevWork := timer.Timeline[entryIdx-1]
 
-			// Calculate when the original work session started
+			// Calculate when the original work session started (before the previous work entry)
 			originalStart, _ := parseTime(timer.DayStart)
 			for i := 0; i < entryIdx-1; i++ {
-				entryBefore := timer.Timeline[i]
-				if entryBefore.Type == "work" {
-					totalMins := entryBefore.TotalMinutes
-					if totalMins == 0 {
-						totalMins = entryBefore.Minutes
-					}
-					originalStart = originalStart.Add(time.Duration(totalMins) * time.Minute)
-				} else {
-					originalStart = originalStart.Add(time.Duration(entryBefore.Minutes) * time.Minute)
-				}
+				originalStart = originalStart.Add(time.Duration(timer.Timeline[i].Duration()) * time.Minute)
 			}
 
 			combinedPaused := prevWork.PausedMinutes + timer.PausedMinutes
@@ -1430,7 +1383,6 @@ func modDropCmd(timer *Timer, cycleNumStr string) error {
 			// Remove the break and the previous work entry
 			timer.Timeline = append(timer.Timeline[:entryIdx-1], timer.Timeline[entryIdx+1:]...)
 
-			timer.CycleStartDatetimeStr = originalStart.Format(DT_FORMAT)
 			timer.PausedMinutes = combinedPaused
 
 			// Calculate total work time for the message
@@ -1438,7 +1390,7 @@ func modDropCmd(timer *Timer, cycleNumStr string) error {
 			totalCycleTime := deltaMinutes(originalStart, now)
 			totalPausedCalc := combinedPaused
 			if timer.Status == StatusPaused {
-				pauseStart, _ := parseTime(timer.StartDatetimeStr)
+				pauseStart, _ := parseTime(timer.PauseStartStr)
 				currentPause := deltaMinutes(pauseStart, now)
 				totalPausedCalc += currentPause
 			}
@@ -1450,22 +1402,12 @@ func modDropCmd(timer *Timer, cycleNumStr string) error {
 			breakMins := timer.Timeline[entryIdx].Minutes
 			nextWork := timer.Timeline[entryIdx+1]
 
-			mergedWorkMins := prevWork.Minutes + nextWork.Minutes
+			// Merge work cycles: break was actually work time, so add it to work minutes
+			mergedWorkMins := prevWork.Minutes + breakMins + nextWork.Minutes
 			mergedPausedMins := prevWork.PausedMinutes + nextWork.PausedMinutes
-
-			prevTotal := prevWork.TotalMinutes
-			if prevTotal == 0 {
-				prevTotal = prevWork.Minutes
-			}
-			nextTotal := nextWork.TotalMinutes
-			if nextTotal == 0 {
-				nextTotal = nextWork.Minutes
-			}
-			mergedTotalMins := prevTotal + breakMins + nextTotal
 
 			prevWork.Minutes = mergedWorkMins
 			prevWork.PausedMinutes = mergedPausedMins
-			prevWork.TotalMinutes = mergedTotalMins
 
 			// Remove the break and next work
 			timer.Timeline = append(timer.Timeline[:entryIdx], timer.Timeline[entryIdx+2:]...)
@@ -1479,8 +1421,9 @@ func modDropCmd(timer *Timer, cycleNumStr string) error {
 
 		if hasPrevBreak && hasNextBreak {
 			prevBreakMins := timer.Timeline[entryIdx-1].Minutes
+			workMins := timer.Timeline[entryIdx].ElapsedMinutes() // Work time becomes break (wasn't actually working)
 			nextBreakMins := timer.Timeline[entryIdx+1].Minutes
-			mergedMins := prevBreakMins + nextBreakMins
+			mergedMins := prevBreakMins + workMins + nextBreakMins
 
 			timer.Timeline[entryIdx-1].Minutes = mergedMins
 			timer.Timeline = append(timer.Timeline[:entryIdx], timer.Timeline[entryIdx+2:]...)
@@ -1523,8 +1466,7 @@ func nextCmd(timer *Timer) error {
 
 	timer.StopDatetimeStr = ""
 	now := getCurrentTime()
-	timer.StartDatetimeStr = now.Format(DT_FORMAT)
-	timer.CycleStartDatetimeStr = now.Format(DT_FORMAT)
+	timer.PauseStartStr = now.Format(DT_FORMAT)
 	timer.PausedMinutes = 0
 	timer.Status = StatusRunning
 
@@ -1587,14 +1529,13 @@ func resetCmd(msg string) error {
 	}
 
 	timer := &Timer{
-		Status:                StatusStopped,
-		StartDatetimeStr:      "",
-		StopDatetimeStr:       "",
-		PausedMinutes:         0,
-		Mode:                  ModeSilent,
-		Timeline:              []TimelineEntry{},
-		DayStart:              "",
-		CycleStartDatetimeStr: "",
+		Status:          StatusStopped,
+		PauseStartStr:   "",
+		StopDatetimeStr: "",
+		PausedMinutes:   0,
+		Mode:            ModeSilent,
+		Timeline:        []TimelineEntry{},
+		DayStart:        "",
 	}
 
 	if oldMode != "" {

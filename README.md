@@ -110,8 +110,8 @@ wt mod            # Shows available mod commands
 
 - Most mod commands work while timer is running or paused
 - Can reduce duration to 0 minutes (helpful for finding mistakes)
-- Dropping a break between work cycles merges them
-- Dropping a work cycle between breaks merges the breaks
+- Dropping a break between work cycles merges them (break time becomes work time, since you were actually working)
+- Dropping a work cycle between breaks merges them (work time becomes break time, since you weren't actually working)
 - `mod pause` only works for work cycles (not breaks)
 
 ### Shortcuts
