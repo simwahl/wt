@@ -72,7 +72,7 @@ This is useful when you forgot to start the timer on time. The timer tracks your
 
 **Modify historical cycles:**
 
-View your numbered timeline (must be stopped):
+View your numbered timeline:
 
 ```bash
 wt log
@@ -85,9 +85,19 @@ wt log
 Then modify a specific cycle using its number:
 
 ```bash
-wt mod 1 add 10   # Add 10 minutes to cycle 1's duration
-wt mod 3 sub 5    # Subtract 5 minutes from cycle 3
-wt mod 2 drop     # Remove cycle 2 (merges adjacent work/break)
+wt mod 1 add 10        # Add 10 minutes to cycle 1's duration
+wt mod 3 sub 5         # Subtract 5 minutes from cycle 3
+wt mod 2 drop          # Remove cycle 2 (merges adjacent work/break)
+wt mod 1 pause add 10  # Add 10 minutes to cycle 1's paused time (work cycles only)
+```
+
+**Modify current running/paused cycle:**
+
+You can also modify the currently active cycle (useful when you forgot to pause):
+
+```bash
+wt mod 3 pause add 5   # Add 5 min pause to current cycle (e.g., bathroom break)
+wt mod 2 drop          # Remove previous break while timer is running
 ```
 
 To see usage help for the mod command:
@@ -98,10 +108,11 @@ wt mod            # Shows available mod commands
 
 **Note:**
 
-- All `wt mod` modifications require the timer to be stopped
+- Most mod commands work while timer is running or paused
 - Can reduce duration to 0 minutes (helpful for finding mistakes)
 - Dropping a break between work cycles merges them
 - Dropping a work cycle between breaks merges the breaks
+- `mod pause` only works for work cycles (not breaks)
 
 ### Shortcuts
 

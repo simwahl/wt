@@ -15,8 +15,6 @@ NC='\033[0m' # No Color
 TESTS_RUN=0
 TESTS_PASSED=0
 
-WT_CMD="python3 $(pwd)/wt.py"
-
 # Ensure WT_ROOT is set (Makefile should set this)
 if [ -z "$WT_ROOT" ]; then
     echo "Error: WT_ROOT not set"
