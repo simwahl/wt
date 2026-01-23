@@ -146,7 +146,7 @@ mock_time "2026-01-20 15:45"
 run_wt start  # Resume after 15 min pause
 
 mock_time "2026-01-20 16:30"
-run_wt stop  # Work: 75 min (90 total - 15 paused)
+run_wt stop  # Work: 65 min (16:30 - 15:05 timeline start - 15 paused)
 
 # === End of day adjustment: actually started 5 min earlier ===
 run_wt mod start sub 5  # Day start: 08:00 -> 07:55
@@ -162,12 +162,12 @@ expected_log="01. [07:55 => 09:35] Work: 1h:40m (1h:40m)
 08. [14:05 => 14:05] Break: 0h:00m
 09. [14:05 => 14:50] Work: 0h:45m (5h:05m)
 10. [14:50 => 15:05] Break: 0h:15m
-11. [15:05 => 16:35] Work: 1h:15m |15m| (6h:20m)"
+11. [15:05 => 16:25] Work: 1h:05m |15m| (6h:10m)"
 actual_log=$($WT_CMD log)
 check_output "full day log matches expected" "$expected_log" "$actual_log"
 
 # === Validate full day report ===
-expected_report="2026-01-20 | 07:55 -> 16:35 | Work: 6h:20m | Break: 1h:45m | Paused: 0h:35m | Total: 8h:40m"
+expected_report="2026-01-20 | 07:55 -> 16:25 | Work: 6h:10m | Break: 1h:45m | Paused: 0h:35m | Total: 8h:30m"
 actual_report=$($WT_CMD report)
 check_output "full day report matches expected" "$expected_report" "$actual_report"
 
@@ -459,11 +459,51 @@ run_wt stop
 
 run_wt mod 2 drop
 
-expected_log="01. [09:00 => 09:45] Work: 0h:35m (0h:35m)"
+# When dropping a break, it means "I was actually working during that time"
+# Work 1 (20m) + Break (10m, now work) + Work 2 (15m) = 45m work, 09:00-09:45
+expected_log="01. [09:00 => 09:45] Work: 0h:45m (0h:45m)"
 actual_log=$($WT_CMD log)
 check_output "merged cycle spans from first start to second end" "$expected_log" "$actual_log"
 
-expected_report="2026-01-20 | 09:00 -> 09:45 | Work: 0h:35m | Break: 0h:00m | Paused: 0h:00m | Total: 0h:35m"
+expected_report="2026-01-20 | 09:00 -> 09:45 | Work: 0h:45m | Break: 0h:00m | Paused: 0h:00m | Total: 0h:45m"
+actual_report=$($WT_CMD report)
+check_output "report shows correct totals" "$expected_report" "$actual_report"
+
+###############################################################################
+# Test 12b: Drop work cycle merges breaks correctly
+###############################################################################
+print_test "12b" "Drop work cycle merges breaks correctly"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+
+run_wt start
+mock_time "2026-01-20 09:20"
+run_wt stop  # Work: 20m
+
+mock_time "2026-01-20 09:30"
+run_wt start  # Break: 10m
+mock_time "2026-01-20 09:45"
+run_wt stop  # Work: 15m
+
+mock_time "2026-01-20 10:00"
+run_wt start  # Break: 15m
+mock_time "2026-01-20 10:30"
+run_wt stop  # Work: 30m
+
+run_wt mod 3 drop
+
+# When dropping a work cycle, it means "I wasn't actually working, still on break"
+# Work 1 (20m) + Break (10m) + Work 2 dropped (15m, now break) + Break (15m) + Work 3 (30m)
+# = Work 1 (20m) + merged Break (10+15+15=40m) + Work 3 (30m)
+expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
+02. [09:20 => 10:00] Break: 0h:40m
+03. [10:00 => 10:30] Work: 0h:30m (0h:50m)"
+actual_log=$($WT_CMD log)
+check_output "dropped work becomes break time" "$expected_log" "$actual_log"
+
+expected_report="2026-01-20 | 09:00 -> 10:30 | Work: 0h:50m | Break: 0h:40m | Paused: 0h:00m | Total: 1h:30m"
 actual_report=$($WT_CMD report)
 check_output "report shows correct totals" "$expected_report" "$actual_report"
 
@@ -557,15 +597,14 @@ run_wt start
 mock_time "2026-01-20 10:15"
 run_wt stop
 
-# First cycle now has 40 min (30 + 10), which extends its end time to 09:40
-# This shifts everything after it by 10 minutes
+# First cycle now 40 min (30 + 10), break unchanged at 10 min, so cycle 3 starts at 09:50
 expected_log="01. [09:00 => 09:40] Work: 0h:40m (0h:40m)
 02. [09:40 => 09:50] Break: 0h:10m
-03. [09:50 => 10:25] Work: 0h:25m |10m| (1h:05m)"
+03. [09:50 => 10:15] Work: 0h:15m |10m| (0h:55m)"
 actual_log=$($WT_CMD log)
 check_output "log shows modified cycle duration" "$expected_log" "$actual_log"
 
-expected_report="2026-01-20 | 09:00 -> 10:25 | Work: 1h:05m | Break: 0h:10m | Paused: 0h:10m | Total: 1h:25m"
+expected_report="2026-01-20 | 09:00 -> 10:15 | Work: 0h:55m | Break: 0h:10m | Paused: 0h:10m | Total: 1h:15m"
 actual_report=$($WT_CMD report)
 check_output "report shows correct totals" "$expected_report" "$actual_report"
 
@@ -643,10 +682,11 @@ run_wt start
 mock_time "2026-01-20 10:10"
 
 # Add 10min to current running cycle's paused time (simulating forgot to pause)
+# Work is calculated from timeline start (09:45), not actual start
 run_wt mod 3 pause add 10
 expected_log="01. [09:00 => 09:45] Work: 0h:35m |10m| (0h:35m)
 02. [09:45 => 09:45] Break: 0h:00m
-03. [09:40 => .....] Work: 0h:15m |15m| (0h:50m)"
+03. [09:45 => .....] Work: 0h:10m |15m| (0h:45m)"
 actual_log=$($WT_CMD log)
 check_output "current cycle paused time modified" "$expected_log" "$actual_log"
 
@@ -692,10 +732,12 @@ actual_error=$($WT_CMD mod 3 sub 5 2>&1)
 check_output "error when modifying paused cycle duration" "$expected_error" "$actual_error"
 
 # Verify we CAN modify previous cycles
+# This extends cycle 1 by 10 min, shifting timeline. Cycle 3 work is calculated
+# from timeline start, so with the shift, current work shows 0 min.
 run_wt mod 1 add 10
 expected_log="01. [09:00 => 09:40] Work: 0h:40m (0h:40m)
 02. [09:40 => 09:50] Break: 0h:10m
-03. [09:40 => .....] Work (paused): 0h:10m |05m| (0h:50m)"
+03. [09:50 => .....] Work (paused): 0h:00m |05m| (0h:40m)"
 actual_log=$($WT_CMD log)
 check_output "can still modify previous cycle while current is paused" "$expected_log" "$actual_log"
 
