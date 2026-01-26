@@ -36,6 +36,14 @@ wt pause
 
 Pauses the current work cycle. You can resume with `wt start`. Paused time is tracked separately from work time.
 
+**Pause with backdated time:**
+
+```bash
+wt pause 5
+```
+
+Pauses the timer and immediately adds 5 minutes of pause time (backdated). Useful when you forgot to pause earlier. The pause time cannot exceed the current cycle's elapsed time.
+
 **Stop the timer:**
 
 ```bash
