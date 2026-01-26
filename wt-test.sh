@@ -411,9 +411,84 @@ actual_report=$($WT_CMD report)
 check_output "report shows correct totals" "$expected_report" "$actual_report"
 
 ###############################################################################
-# Test 11: Drop a cycle
+# Test 11: Pause with time parameter
 ###############################################################################
-print_test "11" "Drop a cycle"
+print_test "11" "Pause with time parameter"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+
+run_wt start
+mock_time "2026-01-20 09:20"
+run_wt pause 10
+
+mock_time "2026-01-20 09:30"
+run_wt start
+mock_time "2026-01-20 09:45"
+run_wt stop
+
+expected_log="01. [09:00 => 09:45] Work: 0h:25m |20m| (0h:25m)"
+actual_log=$($WT_CMD log)
+check_output "log shows backdated pause time" "$expected_log" "$actual_log"
+
+expected_report="2026-01-20 | 09:00 -> 09:45 | Work: 0h:25m | Break: 0h:00m | Paused: 0h:20m | Total: 0h:45m"
+actual_report=$($WT_CMD report)
+check_output "report shows correct totals" "$expected_report" "$actual_report"
+
+###############################################################################
+# Test 11b: Pause with time validation error (exceeds elapsed)
+###############################################################################
+print_test "11b" "Pause with time validation error"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+
+run_wt start
+mock_time "2026-01-20 09:10"
+
+# Try to pause for 15 minutes when only 10 minutes have elapsed
+if ./.out/wt pause 15 2>&1 | grep -q "Cannot pause longer than currently elapsed time."; then
+    print_pass "validation correctly rejects pause time exceeding elapsed"
+else
+    print_fail "should reject pause time exceeding elapsed"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+# Verify timer is still running (pause should have failed)
+if ./.out/wt status 2>&1 | grep -q "running"; then
+    print_pass "timer still running after failed pause"
+else
+    print_fail "timer should still be running"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+###############################################################################
+# Test 11c: Error when trying to pause already-paused timer with time
+###############################################################################
+print_test "11c" "Error when already paused with time parameter"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+
+run_wt start
+mock_time "2026-01-20 09:10"
+run_wt pause
+
+# Try to pause again with time parameter
+if ./.out/wt pause 5 2>&1 | grep -q "Timer already paused"; then
+    print_pass "correctly rejects pause when already paused"
+else
+    print_fail "should reject pause when already paused"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+###############################################################################
+# Test 12: Drop a cycle
+###############################################################################
+print_test "12" "Drop a cycle"
 setup_test
 
 mock_time "2026-01-20 09:00"
@@ -440,9 +515,9 @@ actual_report=$($WT_CMD report)
 check_output "report shows correct totals" "$expected_report" "$actual_report"
 
 ###############################################################################
-# Test 12: Drop break merges work cycles correctly
+# Test 13: Drop break merges work cycles correctly
 ###############################################################################
-print_test "12" "Drop break merges work cycles correctly"
+print_test "13" "Drop break merges work cycles correctly"
 setup_test
 
 mock_time "2026-01-20 09:00"
@@ -470,9 +545,9 @@ actual_report=$($WT_CMD report)
 check_output "report shows correct totals" "$expected_report" "$actual_report"
 
 ###############################################################################
-# Test 12b: Drop work cycle merges breaks correctly
+# Test 13b: Drop work cycle merges breaks correctly
 ###############################################################################
-print_test "12b" "Drop work cycle merges breaks correctly"
+print_test "13b" "Drop work cycle merges breaks correctly"
 setup_test
 
 mock_time "2026-01-20 09:00"
@@ -508,9 +583,9 @@ actual_report=$($WT_CMD report)
 check_output "report shows correct totals" "$expected_report" "$actual_report"
 
 ###############################################################################
-# Test 13: Restart with backdate
+# Test 14: Restart with backdate
 ###############################################################################
-print_test "13" "Restart with backdate"
+print_test "14" "Restart with backdate"
 setup_test
 
 mock_time "2026-01-20 09:00"
@@ -535,9 +610,9 @@ actual_report=$($WT_CMD report)
 check_output "report shows correct totals" "$expected_report" "$actual_report"
 
 ###############################################################################
-# Test 14: Mod while timer is running
+# Test 15: Mod while timer is running
 ###############################################################################
-print_test "14" "Mod while timer is running"
+print_test "15" "Mod while timer is running"
 setup_test
 
 mock_time "2026-01-20 09:00"

@@ -155,14 +155,20 @@ func main() {
 				},
 			},
 			{
-				Name:  "pause",
-				Usage: "Pauses currently running timer",
+				Name:        "pause",
+				Usage:       "Pauses currently running timer",
+				ArgsUsage:   "[time]",
+				Description: "Optionally provide time in HHMM format to add pause time",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					timer, err := load()
 					if err != nil {
 						return err
 					}
-					return pauseCmd(timer)
+					pauseTime := ""
+					if cmd.Args().Len() > 0 {
+						pauseTime = cmd.Args().Get(0)
+					}
+					return pauseCmd(timer, pauseTime)
 				},
 			},
 			{
@@ -821,25 +827,66 @@ func stopCmd(timer *Timer) error {
 	return nil
 }
 
-func pauseCmd(timer *Timer) error {
+func pauseCmd(timer *Timer, pauseTime string) error {
 	switch timer.Status {
 	case StatusPaused:
 		fmt.Println("Timer already paused.")
+		return nil
 	case StatusStopped:
 		fmt.Println("Cannot pause stopped timer.")
+		return nil
 	case StatusRunning:
-		timer.PauseStartStr = getCurrentTime().Format(DT_FORMAT)
+		// Validate and handle optional pause time parameter
+		additionalPause := 0
+		if pauseTime != "" {
+			if err := validateTimeString(pauseTime); err != nil {
+				return err
+			}
+			var err error
+			additionalPause, err = stringTimeToMinutes(pauseTime)
+			if err != nil {
+				return err
+			}
+
+			// Calculate current cycle elapsed time
+			cycleStart := timer.CurrentCycleStart()
+			elapsed := deltaMinutes(cycleStart, getCurrentTime())
+
+			// Verify total pause doesn't exceed elapsed time
+			totalPause := timer.PausedMinutes + additionalPause
+			if totalPause > elapsed {
+				return fmt.Errorf("Cannot pause longer than currently elapsed time.")
+			}
+		}
+
+		// Set pause start time (backdated if additional pause time provided)
+		now := getCurrentTime()
+		if additionalPause > 0 {
+			timer.PauseStartStr = now.Add(-time.Duration(additionalPause) * time.Minute).Format(DT_FORMAT)
+		} else {
+			timer.PauseStartStr = now.Format(DT_FORMAT)
+		}
 		timer.Status = StatusPaused
 
-		logDebug("wt pause")
+		// Log command
+		pauseTimeLog := ""
+		if pauseTime != "" {
+			pauseTimeLog = fmt.Sprintf(" %s", pauseTime)
+		}
+		logDebug(fmt.Sprintf("wt pause%s", pauseTimeLog))
 		if err := save(timer); err != nil {
 			return err
 		}
 
-		printMessageIfNotSilent(timer, "Timer paused.")
+		// Print success message
+		message := "Paused timer"
+		if additionalPause > 0 {
+			message = fmt.Sprintf("Paused timer (added %dm pause time)", additionalPause)
+		}
+		printMessageIfNotSilent(timer, message)
 		printCheckIfVerbose(timer)
 	default:
-		fmt.Printf("Unhandled status: %s\n", timer.Status)
+		return fmt.Errorf("Unhandled status: %s", timer.Status)
 	}
 
 	return nil
