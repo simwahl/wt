@@ -387,6 +387,11 @@ func debugLogFilePath() (string, error) {
 }
 
 func dailyReportFilePath() (string, error) {
+	// Prefer WT_REPORT_FILE if set
+	if reportFile := os.Getenv("WT_REPORT_FILE"); reportFile != "" {
+		return reportFile, nil
+	}
+
 	root, err := projectRootPath()
 	if err != nil {
 		return "", err
