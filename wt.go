@@ -596,10 +596,12 @@ func saveDailyReport(timer *Timer) error {
 	// Calculate totals from timeline
 	totalWorkMins := 0
 	totalBreakMins := 0
+	totalPausedMins := 0
 
 	for _, entry := range timer.Timeline {
 		if entry.Type == "work" {
 			totalWorkMins += entry.Minutes
+			totalPausedMins += entry.PausedMinutes
 		} else {
 			totalBreakMins += entry.Minutes
 		}
@@ -607,18 +609,27 @@ func saveDailyReport(timer *Timer) error {
 
 	// Add current running/paused time if applicable
 	currentMins := 0
+	currentPausedMins := 0
 	if timer.Status == StatusRunning || timer.Status == StatusPaused {
 		currentMins = calculateCurrentMinutes(timer)
 		totalWorkMins += currentMins
+
+		// Add current cycle's paused time
+		currentPausedMins = timer.PausedMinutes
+		if timer.Status == StatusPaused {
+			pauseStart, _ := parseTime(timer.PauseStartStr)
+			currentPausedMins += deltaMinutes(pauseStart, getCurrentTime())
+		}
+		totalPausedMins += currentPausedMins
 	}
 
-	// Calculate end time
+	// Calculate end time (includes work + paused time for running/paused cycles)
 	startDt, _ := parseTime(timer.DayStart)
 	endDt := timer.CurrentCycleStart()
 
-	// Add current running time
+	// Add current running time (work minutes + paused minutes = elapsed time)
 	if timer.Status == StatusRunning || timer.Status == StatusPaused {
-		endDt = endDt.Add(time.Duration(currentMins) * time.Minute)
+		endDt = endDt.Add(time.Duration(currentMins+currentPausedMins) * time.Minute)
 	}
 
 	// Format output
@@ -627,7 +638,8 @@ func saveDailyReport(timer *Timer) error {
 	endTime := endDt.Format(TIME_ONLY_FORMAT)
 	workStr := minutesToHourMinuteStr(totalWorkMins)
 	breakStr := minutesToHourMinuteStr(totalBreakMins)
-	totalStr := minutesToHourMinuteStr(totalWorkMins + totalBreakMins)
+	pausedStr := minutesToHourMinuteStr(totalPausedMins)
+	totalStr := minutesToHourMinuteStr(totalWorkMins + totalBreakMins + totalPausedMins)
 
 	// Check if crossed midnight
 	dayDiff := int(endDt.Sub(startDt).Hours() / 24)
@@ -636,8 +648,8 @@ func saveDailyReport(timer *Timer) error {
 		dayIndicator = fmt.Sprintf(" [+%d day]", dayDiff)
 	}
 
-	reportLine := fmt.Sprintf("%s | %s -> %s | Work: %s | Break: %s | Total: %s%s\n",
-		dateStr, startTime, endTime, workStr, breakStr, totalStr, dayIndicator)
+	reportLine := fmt.Sprintf("%s | %s -> %s | Work: %s | Break: %s | Paused: %s | Total: %s%s",
+		dateStr, startTime, endTime, workStr, breakStr, pausedStr, totalStr, dayIndicator)
 
 	// Prepend to daily report file (newest at top)
 	filePath, err := dailyReportFilePath()
@@ -647,10 +659,17 @@ func saveDailyReport(timer *Timer) error {
 
 	existingContent := ""
 	if data, err := os.ReadFile(filePath); err == nil {
-		existingContent = string(data)
+		existingContent = strings.TrimSpace(string(data))
 	}
 
-	return os.WriteFile(filePath, []byte(reportLine+existingContent), 0644)
+	// Build final content: new line, then existing (if any)
+	finalContent := reportLine
+	if existingContent != "" {
+		finalContent = reportLine + "\n" + existingContent
+	}
+	finalContent += "\n"
+
+	return os.WriteFile(filePath, []byte(finalContent), 0644)
 }
 
 // Command implementations
