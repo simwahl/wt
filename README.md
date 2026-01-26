@@ -10,7 +10,7 @@ Work timer used to time cycles of work. Useful for pomodoro or similar work/brea
 
 ```bash
 export WT_ROOT=~/wt  # Required: where timer data is stored
-export WT_REPORT_FILE=~/wt-report.txt  # Optional: custom location for daily reports
+export WT_REPORT_FILE=~/wt-report.txt  # Optional: backup location for daily reports when resetting/removing timer
 ```
 
 Add these to your `.zshrc` or `.bashrc` to persist across sessions.

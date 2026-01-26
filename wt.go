@@ -1637,6 +1637,9 @@ func removeCmd() error {
 		os.Exit(0)
 	}
 
+	// Save daily report before removing timer
+	saveDailyReport(timer)
+
 	filePath, _ := outputFilePath()
 	os.Remove(filePath)
 
