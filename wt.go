@@ -313,12 +313,19 @@ func main() {
 				Name:        "report",
 				Usage:       "Print a one-line summary of the day's work",
 				Description: "Shows date, start time, end time, total work time, total break time, and total time",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:    "total-time-only",
+						Aliases: []string{"t"},
+						Usage:   "Show only date and total time",
+					},
+				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					timer, err := load()
 					if err != nil {
 						return err
 					}
-					return reportCmd(timer)
+					return reportCmd(timer, cmd.Bool("total-time-only"))
 				},
 			},
 			{
@@ -1099,7 +1106,7 @@ func historyCmd(timer *Timer, logType string) error {
 	return nil
 }
 
-func reportCmd(timer *Timer) error {
+func reportCmd(timer *Timer, totalTimeOnly bool) error {
 	if timer.DayStart == "" {
 		fmt.Println("No work recorded today.")
 		return nil
@@ -1164,8 +1171,12 @@ func reportCmd(timer *Timer) error {
 		dayIndicator = fmt.Sprintf(" [+%d day]", dayDiff)
 	}
 
-	fmt.Printf("%s | %s -> %s | Work: %s | Break: %s | Paused: %s | Total: %s%s\n",
-		dateStr, startTime, endTime, workStr, breakStr, pausedStr, totalStr, dayIndicator)
+	if totalTimeOnly {
+		fmt.Printf("%s | %s\n", dateStr, totalStr)
+	} else {
+		fmt.Printf("%s | %s -> %s | Work: %s | Break: %s | Paused: %s | Total: %s%s\n",
+			dateStr, startTime, endTime, workStr, breakStr, pausedStr, totalStr, dayIndicator)
+	}
 
 	return nil
 }
