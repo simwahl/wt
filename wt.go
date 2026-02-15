@@ -144,14 +144,20 @@ func main() {
 				},
 			},
 			{
-				Name:  "stop",
-				Usage: "Stops running or paused timer",
+				Name:        "stop",
+				Usage:       "Stops running or paused timer",
+				ArgsUsage:   "[time]",
+				Description: "Optionally provide time in HHMM format to backdate stop (subtract from work time)",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					timer, err := load()
 					if err != nil {
 						return err
 					}
-					return stopCmd(timer)
+					stopTime := ""
+					if cmd.Args().Len() > 0 {
+						stopTime = cmd.Args().Get(0)
+					}
+					return stopCmd(timer, stopTime)
 				},
 			},
 			{
@@ -794,25 +800,50 @@ func startCmd(timer *Timer, startTime string) error {
 	return nil
 }
 
-func stopCmd(timer *Timer) error {
+func stopCmd(timer *Timer, stopTime string) error {
 	switch timer.Status {
 	case StatusStopped:
 		fmt.Println("Timer already stopped.")
 		return nil
 	case StatusRunning, StatusPaused:
+		// Validate and handle optional stop time parameter
+		subtractMinutes := 0
+		if stopTime != "" {
+			if err := validateTimeString(stopTime); err != nil {
+				return err
+			}
+			var err error
+			subtractMinutes, err = stringTimeToMinutes(stopTime)
+			if err != nil {
+				return err
+			}
+
+			// Validate that subtract time doesn't exceed current cycle elapsed time
+			cycleStart := timer.CurrentCycleStart()
+			elapsed := deltaMinutes(cycleStart, getCurrentTime())
+			if subtractMinutes > elapsed {
+				return fmt.Errorf("Cannot subtract more time than currently elapsed in this cycle.")
+			}
+		}
+
 		now := getCurrentTime()
-		stopTimeStr := now.Format(DT_FORMAT)
+		// Calculate effective stop time (backdated if subtract time provided)
+		effectiveStopTime := now
+		if subtractMinutes > 0 {
+			effectiveStopTime = now.Add(-time.Duration(subtractMinutes) * time.Minute)
+		}
+		stopTimeStr := effectiveStopTime.Format(DT_FORMAT)
 
 		// Calculate work duration: total_cycle_time - paused_time
 		totalPaused := timer.PausedMinutes
 		if timer.Status == StatusPaused {
 			pauseStart, _ := parseTime(timer.PauseStartStr)
-			currentPause := deltaMinutes(pauseStart, now)
+			currentPause := deltaMinutes(pauseStart, effectiveStopTime)
 			totalPaused += currentPause
 		}
 
 		cycleStart := timer.CurrentCycleStart()
-		totalCycleTime := deltaMinutes(cycleStart, now)
+		totalCycleTime := deltaMinutes(cycleStart, effectiveStopTime)
 
 		// Work time = total cycle time - paused time
 		cycleMinutes := totalCycleTime - totalPaused
@@ -844,7 +875,11 @@ func stopCmd(timer *Timer) error {
 		timer.PausedMinutes = 0
 		timer.Status = StatusStopped
 
-		logDebug("wt stop")
+		if stopTime != "" {
+			logDebug(fmt.Sprintf("wt stop %s", stopTime))
+		} else {
+			logDebug("wt stop")
+		}
 		if err := save(timer); err != nil {
 			return err
 		}
@@ -1526,7 +1561,7 @@ func modDropCmd(timer *Timer, cycleNumStr string) error {
 }
 
 func nextCmd(timer *Timer) error {
-	if err := stopCmd(timer); err != nil {
+	if err := stopCmd(timer, ""); err != nil {
 		return err
 	}
 

@@ -1035,6 +1035,110 @@ expected_log="01. [09:15 => 09:45] Work: 0h:30m (0h:30m)"
 actual_log=$($WT_CMD log)
 check_output "mod start add adjusts first cycle later" "$expected_log" "$actual_log"
 
+###############################################################################
+# Test 28: Stop with time subtraction - basic case
+###############################################################################
+print_test "28" "Stop with time subtraction - basic case"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+run_wt start
+
+# Work for 30 minutes, but stop 10 minutes ago
+mock_time "2026-01-20 09:30"
+run_wt stop 10
+
+expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)"
+actual_log=$($WT_CMD log)
+check_output "stop with time subtraction reduces work time" "$expected_log" "$actual_log"
+
+expected_check="--:-- STOPPED (0h 20m)"
+actual_check=$($WT_CMD check)
+check_output "check shows reduced work time after stop" "$expected_check" "$actual_check"
+
+###############################################################################
+# Test 29: Stop with time subtraction - with paused time
+###############################################################################
+print_test "29" "Stop with time subtraction - with paused time"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+run_wt start
+
+# Pause at 09:15
+mock_time "2026-01-20 09:15"
+run_wt pause
+
+# Resume at 09:25 (10 min paused)
+mock_time "2026-01-20 09:25"
+run_wt start
+
+# Stop at 09:35 minus 5 minutes = 09:30 effective stop
+# Total elapsed: 30 min (09:00-09:30), paused: 10 min, work: 20 min
+mock_time "2026-01-20 09:35"
+run_wt stop 5
+
+expected_log="01. [09:00 => 09:30] Work: 0h:20m |10m| (0h:20m)"
+actual_log=$($WT_CMD log)
+check_output "stop with time subtraction handles paused time correctly" "$expected_log" "$actual_log"
+
+###############################################################################
+# Test 30: Stop with time subtraction - validation failure
+###############################################################################
+print_test "30" "Stop with time subtraction - validation failure"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+run_wt start
+
+# Work for 20 minutes, try to subtract 30 (should fail)
+mock_time "2026-01-20 09:20"
+actual_error=$($WT_CMD stop 30 2>&1 || true)
+expected_error="Cannot subtract more time than currently elapsed in this cycle."
+check_output "stop validation prevents excessive time subtraction" "$expected_error" "$actual_error"
+
+# Verify timer is still running (not stopped)
+expected_check="0h 20m RUNNING (0h 20m)"
+actual_check=$($WT_CMD check)
+check_output "timer remains running after validation failure" "$expected_check" "$actual_check"
+
+# Verify we can still stop normally
+run_wt stop
+expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)"
+actual_log=$($WT_CMD log)
+check_output "timer can stop normally after validation failure" "$expected_log" "$actual_log"
+
+###############################################################################
+# Test 31: Stop with time subtraction - multiple cycles
+###############################################################################
+print_test "31" "Stop with time subtraction - multiple cycles"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+run_wt start
+
+# First cycle: work 30 min
+mock_time "2026-01-20 09:30"
+run_wt stop
+
+# Break 15 min
+mock_time "2026-01-20 09:45"
+run_wt start
+
+# Second cycle: work for 35 min, stop 5 min ago
+mock_time "2026-01-20 10:20"
+run_wt stop 5
+
+expected_log="01. [09:00 => 09:30] Work: 0h:30m (0h:30m)
+02. [09:30 => 09:45] Break: 0h:15m
+03. [09:45 => 10:15] Work: 0h:30m (1h:00m)"
+actual_log=$($WT_CMD log)
+check_output "stop with time subtraction works in later cycles" "$expected_log" "$actual_log"
+
 echo ""
 echo "=========================================="
 echo "Test Results"

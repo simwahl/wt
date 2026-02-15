@@ -61,6 +61,14 @@ wt stop
 
 Stops the current cycle and records it to the timeline. For cycles with pauses, the entry will show both work time and paused time.
 
+**Stop with backdated time:**
+
+```bash
+wt stop 10
+```
+
+Stops the timer and subtracts 10 minutes from the work time (backdates the stop time). This is useful when you realize you stopped working earlier. The subtract time cannot exceed the current cycle's elapsed time.
+
 **Stop and start a new timer all in one:**
 
 ```bash
