@@ -905,6 +905,10 @@ func pauseCmd(timer *Timer, pauseTime string) error {
 		// Validate and handle optional pause time parameter
 		additionalPause := 0
 		if pauseTime != "" {
+			// Check if user is trying to use add/sub syntax
+			if pauseTime == "add" || pauseTime == "sub" {
+				return fmt.Errorf("To modify pause time, use: wt mod <cycle> pause add/sub <minutes>")
+			}
 			if err := validateTimeString(pauseTime); err != nil {
 				return err
 			}

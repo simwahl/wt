@@ -486,6 +486,40 @@ fi
 TESTS_RUN=$((TESTS_RUN + 1))
 
 ###############################################################################
+# Test 11d: Error when using pause add/sub syntax
+###############################################################################
+print_test "11d" "Error when using pause add/sub syntax"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+
+run_wt start
+mock_time "2026-01-20 09:10"
+
+if ./.out/wt pause add 4 2>&1 | grep -q "wt mod <cycle> pause add/sub"; then
+    print_pass "correctly rejects 'pause add' and shows correct usage"
+else
+    print_fail "should reject 'pause add' with hint to use 'wt mod <cycle> pause add/sub'"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+if ./.out/wt pause sub 4 2>&1 | grep -q "wt mod <cycle> pause add/sub"; then
+    print_pass "correctly rejects 'pause sub' and shows correct usage"
+else
+    print_fail "should reject 'pause sub' with hint to use 'wt mod <cycle> pause add/sub'"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+# Verify timer is still running (pause should have failed)
+if ./.out/wt status 2>&1 | grep -q "running"; then
+    print_pass "timer still running after failed pause add/sub"
+else
+    print_fail "timer should still be running after failed pause add/sub"
+fi
+TESTS_RUN=$((TESTS_RUN + 1))
+
+###############################################################################
 # Test 12: Drop a cycle
 ###############################################################################
 print_test "12" "Drop a cycle"
