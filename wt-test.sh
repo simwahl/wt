@@ -1087,9 +1087,9 @@ expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)"
 actual_log=$($WT_CMD log)
 check_output "stop with time subtraction reduces work time" "$expected_log" "$actual_log"
 
-expected_check="--:-- STOPPED (0h 20m)"
+expected_check="0h 10m STOPPED (0h 20m)"
 actual_check=$($WT_CMD check)
-check_output "check shows reduced work time after stop" "$expected_check" "$actual_check"
+check_output "check shows break time after stop" "$expected_check" "$actual_check"
 
 ###############################################################################
 # Test 29: Stop with time subtraction - with paused time

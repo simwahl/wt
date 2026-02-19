@@ -984,7 +984,13 @@ func checkCmd(timer *Timer) error {
 	case StatusRunning, StatusPaused:
 		runningStr = hourMinuteStrFromMinutes(runningMinutes)
 	case StatusStopped:
-		runningStr = "--:--"
+		if len(timer.Timeline) > 0 {
+			breakStart := timer.CurrentCycleStart()
+			breakMinutes := deltaMinutes(breakStart, getCurrentTime())
+			runningStr = hourMinuteStrFromMinutes(breakMinutes)
+		} else {
+			runningStr = "--:--"
+		}
 	default:
 		return fmt.Errorf("Unhandled status: %s.", timer.Status)
 	}
