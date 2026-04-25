@@ -950,21 +950,21 @@ mock_time "2026-01-20 09:00"
 run_wt new
 
 # Check when stopped
-expected_check="--:-- STOPPED (0h 00m)"
+expected_check="No work cycles recorded."
 actual_check=$($WT_CMD check)
 check_output "check when stopped" "$expected_check" "$actual_check"
 
 # Check when running
 run_wt start
 mock_time "2026-01-20 09:15"
-expected_check="0h 15m RUNNING (0h 15m)"
+expected_check="01. [09:00 => .....] Work: 0h:15m (0h:15m)"
 actual_check=$($WT_CMD check)
 check_output "check when running" "$expected_check" "$actual_check"
 
 # Check when paused
 run_wt pause
 mock_time "2026-01-20 09:20"
-expected_check="0h 15m PAUSED |05m| (0h 15m)"
+expected_check="01. [09:00 => .....] Work (paused): 0h:15m |05m| (0h:15m)"
 actual_check=$($WT_CMD check)
 check_output "check when paused shows pause time" "$expected_check" "$actual_check"
 
@@ -1132,7 +1132,7 @@ expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
 actual_log=$($WT_CMD log)
 check_output "stop with time subtraction reduces work time" "$expected_log" "$actual_log"
 
-expected_check="0h 10m STOPPED (0h 20m)"
+expected_check="02. [09:20 => .....] Break: 0h:10m"
 actual_check=$($WT_CMD check)
 check_output "check shows break time after stop" "$expected_check" "$actual_check"
 
@@ -1181,7 +1181,7 @@ expected_error="Cannot subtract more time than currently elapsed in this cycle."
 check_output "stop validation prevents excessive time subtraction" "$expected_error" "$actual_error"
 
 # Verify timer is still running (not stopped)
-expected_check="0h 20m RUNNING (0h 20m)"
+expected_check="01. [09:00 => .....] Work: 0h:20m (0h:20m)"
 actual_check=$($WT_CMD check)
 check_output "timer remains running after validation failure" "$expected_check" "$actual_check"
 

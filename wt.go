@@ -1156,88 +1156,23 @@ func pauseCmd(timer *Timer, pauseTime string) error {
 }
 
 func checkCmd(timer *Timer) error {
-	runningMinutes := 0
-	pausedMinutes := 0
-
-	if timer.Status == StatusRunning || timer.Status == StatusPaused {
-		runningMinutes = calculateCurrentMinutes(timer)
-		pausedMinutes = timer.PausedMinutes
-
-		if timer.Status == StatusPaused {
-			pauseStart, _ := parseTime(timer.PauseStartStr)
-			currentPause := deltaMinutes(pauseStart, getCurrentTime())
-			pausedMinutes += currentPause
-		}
+	lines, err := buildInfoLogLines(timer)
+	if err != nil {
+		return err
+	}
+	if len(lines) == 0 {
+		return nil
 	}
 
-	totalMinutes := runningMinutes + timer.CompletedMinutes()
-
-	var runningStr string
-	switch timer.Status {
-	case StatusRunning, StatusPaused:
-		runningStr = hourMinuteStrFromMinutes(runningMinutes)
-	case StatusStopped:
-		if len(timer.Timeline) > 0 {
-			breakStart := timer.CurrentCycleStart()
-			breakMinutes := deltaMinutes(breakStart, getCurrentTime())
-			runningStr = hourMinuteStrFromMinutes(breakMinutes)
-		} else {
-			runningStr = "--:--"
-		}
-	default:
-		return fmt.Errorf("Unhandled status: %s.", timer.Status)
-	}
-
-	statusStr := strings.ToUpper(timer.Status)
-	totalStr := hourMinuteStrFromMinutes(totalMinutes)
-
-	pausedStr := ""
-	if pausedMinutes > 0 {
-		pausedStr = fmt.Sprintf(" |%02dm|", pausedMinutes)
-	}
-
-	fmt.Printf("%s %s%s (%s)\n", runningStr, statusStr, pausedStr, totalStr)
-
+	fmt.Println(lines[len(lines)-1])
 	return nil
 }
 
-func historyCmd(timer *Timer, logType string) error {
-	validTypes := []string{"info", "debug"}
-	if logType != "" {
-		valid := false
-		for _, t := range validTypes {
-			if t == logType {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			fmt.Printf("Invalid log type: %s. Use one of: ['info', 'debug']\n", logType)
-			return nil
-		}
-	}
-
-	// Debug log still reads from file
-	if logType == "debug" {
-		filePath, err := debugLogFilePath()
-		if err != nil {
-			return err
-		}
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			return err
-		}
-		fmt.Print(string(data))
-		return nil
-	}
-
-	// Generate info-log on-the-fly from timeline
+func buildInfoLogLines(timer *Timer) ([]string, error) {
 	if len(timer.Timeline) == 0 && timer.Status == StatusStopped {
-		fmt.Println("No work cycles recorded.")
-		return nil
+		return []string{"No work cycles recorded."}, nil
 	}
 
-	// Generate entries from timeline
 	var currentTime time.Time
 	if timer.DayStart != "" {
 		currentTime, _ = parseTime(timer.DayStart)
@@ -1247,6 +1182,7 @@ func historyCmd(timer *Timer, logType string) error {
 
 	runningTotal := 0
 	lineNum := 1
+	lines := make([]string, 0)
 
 	for _, entry := range timer.Timeline {
 		if entry.Type == "work" {
@@ -1280,8 +1216,8 @@ func historyCmd(timer *Timer, logType string) error {
 				dayIndicator = fmt.Sprintf("  [+%d day]", dayDiff)
 			}
 
-			fmt.Printf("%02d. [%s => %s] Work: %s%s (%s)%s\n",
-				lineNum, startTimeStr, endTimeStr, workStr, pausedStr, totalStr, dayIndicator)
+			lines = append(lines, fmt.Sprintf("%02d. [%s => %s] Work: %s%s (%s)%s",
+				lineNum, startTimeStr, endTimeStr, workStr, pausedStr, totalStr, dayIndicator))
 
 			currentTime = endTime
 		} else {
@@ -1292,24 +1228,20 @@ func historyCmd(timer *Timer, logType string) error {
 			endTimeStr := endTime.Format(TIME_ONLY_FORMAT)
 			breakStr := minutesToHourMinuteStr(breakMins)
 
-			fmt.Printf("%02d. [%s => %s] Break: %s\n",
-				lineNum, startTimeStr, endTimeStr, breakStr)
+			lines = append(lines, fmt.Sprintf("%02d. [%s => %s] Break: %s",
+				lineNum, startTimeStr, endTimeStr, breakStr))
 
 			currentTime = endTime
 		}
-
 		lineNum++
 	}
 
-	// If timer is running or paused, show current active cycle
 	if timer.Status == StatusRunning || timer.Status == StatusPaused {
 		currentMinutes := calculateCurrentMinutes(timer)
 		totalMinutes := currentMinutes + runningTotal
 
 		currentStr := minutesToHourMinuteStr(currentMinutes)
 		totalStr := minutesToHourMinuteStr(totalMinutes)
-
-		// Use calculated start time from timeline
 		startTimeOnly := currentTime.Format(TIME_ONLY_FORMAT)
 
 		now := getCurrentTime()
@@ -1319,7 +1251,6 @@ func historyCmd(timer *Timer, logType string) error {
 			dayIndicator = fmt.Sprintf("  [+%d day]", dayDiff)
 		}
 
-		// Calculate paused minutes for current cycle
 		totalPaused := timer.PausedMinutes
 		if timer.Status == StatusPaused {
 			pauseStart, _ := parseTime(timer.PauseStartStr)
@@ -1337,11 +1268,10 @@ func historyCmd(timer *Timer, logType string) error {
 			statusSuffix = " (paused)"
 		}
 
-		fmt.Printf("%02d. [%s => .....] Work%s: %s%s (%s)%s\n",
-			lineNum, startTimeOnly, statusSuffix, currentStr, pausedStr, totalStr, dayIndicator)
+		lines = append(lines, fmt.Sprintf("%02d. [%s => .....] Work%s: %s%s (%s)%s",
+			lineNum, startTimeOnly, statusSuffix, currentStr, pausedStr, totalStr, dayIndicator))
 	}
 
-	// If timer is stopped with completed cycles, show in-progress break when elapsed > 0
 	if timer.Status == StatusStopped && len(timer.Timeline) > 0 {
 		breakMinutes := deltaMinutes(currentTime, getCurrentTime())
 		if breakMinutes >= 0 {
@@ -1355,9 +1285,50 @@ func historyCmd(timer *Timer, logType string) error {
 				dayIndicator = fmt.Sprintf("  [+%d day]", dayDiff)
 			}
 
-			fmt.Printf("%02d. [%s => .....] Break: %s%s\n",
-				lineNum, startTimeOnly, breakStr, dayIndicator)
+			lines = append(lines, fmt.Sprintf("%02d. [%s => .....] Break: %s%s",
+				lineNum, startTimeOnly, breakStr, dayIndicator))
 		}
+	}
+
+	return lines, nil
+}
+
+func historyCmd(timer *Timer, logType string) error {
+	validTypes := []string{"info", "debug"}
+	if logType != "" {
+		valid := false
+		for _, t := range validTypes {
+			if t == logType {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			fmt.Printf("Invalid log type: %s. Use one of: ['info', 'debug']\n", logType)
+			return nil
+		}
+	}
+
+	// Debug log still reads from file
+	if logType == "debug" {
+		filePath, err := debugLogFilePath()
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			return err
+		}
+		fmt.Print(string(data))
+		return nil
+	}
+
+	lines, err := buildInfoLogLines(timer)
+	if err != nil {
+		return err
+	}
+	for _, line := range lines {
+		fmt.Println(line)
 	}
 
 	return nil
