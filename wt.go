@@ -1277,6 +1277,7 @@ func buildInfoLogLines(timer *Timer) ([]string, error) {
 		if breakMinutes >= 0 {
 			startTimeOnly := currentTime.Format(TIME_ONLY_FORMAT)
 			breakStr := minutesToHourMinuteStr(breakMinutes)
+			totalStr := minutesToHourMinuteStr(runningTotal)
 
 			now := getCurrentTime()
 			dayDiff := int(now.Sub(currentTime).Hours() / 24)
@@ -1285,8 +1286,8 @@ func buildInfoLogLines(timer *Timer) ([]string, error) {
 				dayIndicator = fmt.Sprintf("  [+%d day]", dayDiff)
 			}
 
-			lines = append(lines, fmt.Sprintf("%02d. [%s => .....] Break: %s%s",
-				lineNum, startTimeOnly, breakStr, dayIndicator))
+			lines = append(lines, fmt.Sprintf("%02d. [%s => .....] Break: %s (%s)%s",
+				lineNum, startTimeOnly, breakStr, totalStr, dayIndicator))
 		}
 	}
 
