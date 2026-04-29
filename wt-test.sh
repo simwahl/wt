@@ -1332,6 +1332,94 @@ expected_log="01. [09:00 => 09:12] Work: 0h:12m (0h:12m)
 actual_log=$($WT_CMD log)
 check_output "break starts at modified cycle end" "$expected_log" "$actual_log"
 
+###############################################################################
+# Test 36: Stop with absolute clock time (HH:MM)
+###############################################################################
+print_test "36" "Stop with absolute clock time"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+run_wt start
+
+# Work from 09:00, "forget" to stop, come back next day
+mock_time "2026-01-21 08:00"
+run_wt stop 09:45
+
+# Should stop at 09:45 on Jan 20 (same day as cycle start)
+expected_log="01. [09:00 => 09:45] Work: 0h:45m (0h:45m)
+02. [09:45 => .....] Break: 22h:15m (0h:45m)"
+actual_log=$($WT_CMD log)
+check_output "stop with HH:MM sets stop on cycle start day" "$expected_log" "$actual_log"
+
+###############################################################################
+# Test 37: Stop with absolute clock time - with paused time
+###############################################################################
+print_test "37" "Stop with absolute clock time - with paused time"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+run_wt start
+
+# Pause at 09:15
+mock_time "2026-01-20 09:15"
+run_wt pause
+
+# Resume at 09:25 (10 min paused)
+mock_time "2026-01-20 09:25"
+run_wt start
+
+# Forget to stop, come back next day, stop at 10:00
+mock_time "2026-01-21 08:00"
+run_wt stop 10:00
+
+# Total elapsed: 60 min (09:00-10:00), paused: 10 min, work: 50 min
+expected_log="01. [09:00 => 10:00] Work: 0h:50m |10m| (0h:50m)
+02. [10:00 => .....] Break: 22h:00m (0h:50m)"
+actual_log=$($WT_CMD log)
+check_output "stop with HH:MM handles paused time correctly" "$expected_log" "$actual_log"
+
+###############################################################################
+# Test 38: Stop with absolute clock time - validation
+###############################################################################
+print_test "38" "Stop with absolute clock time - validation"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+run_wt start
+
+# Try to stop before cycle start
+mock_time "2026-01-20 10:00"
+actual_error=$($WT_CMD stop 08:30 2>&1 || true)
+expected_error="Stop time 08:30 is before cycle start 09:00."
+check_output "stop HH:MM rejects time before cycle start" "$expected_error" "$actual_error"
+
+# Verify timer still running
+expected_check="01. [09:00 => .....] Work: 1h:00m (1h:00m)"
+actual_check=$($WT_CMD check)
+check_output "timer remains running after validation failure" "$expected_check" "$actual_check"
+
+###############################################################################
+# Test 39: Check warns when timer runs overnight
+###############################################################################
+print_test "39" "Check warns when timer runs overnight"
+setup_test
+
+mock_time "2026-01-20 16:00"
+run_wt new
+run_wt start
+
+# Next morning
+mock_time "2026-01-21 08:00"
+actual_check=$($WT_CMD check)
+expected_warning="Warning: Timer has been running since 2026-01-20 16:00."
+check_output "check shows overnight warning" "$expected_warning" "$(echo "$actual_check" | head -1)"
+
+expected_hint="  Use 'wt stop HH:MM' to set the actual stop time on 2026-01-20."
+check_output "check shows stop hint with date" "$expected_hint" "$(echo "$actual_check" | sed -n '2p')"
+
 echo ""
 echo "=========================================="
 echo "Test Results"

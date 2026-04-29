@@ -151,7 +151,7 @@ func main() {
 				Name:        "stop",
 				Usage:       "Stops running or paused timer",
 				ArgsUsage:   "[time]",
-				Description: "Optionally provide time in HHMM format to backdate stop (subtract from work time)",
+				Description: "Optionally provide HH:MM clock time to stop at, or HHMM duration to subtract from work time",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					timer, err := load()
 					if err != nil {
@@ -999,32 +999,47 @@ func stopCmd(timer *Timer, stopTime string) error {
 		fmt.Println("Timer already stopped.")
 		return nil
 	case StatusRunning, StatusPaused:
-		// Validate and handle optional stop time parameter
-		subtractMinutes := 0
-		if stopTime != "" {
-			if err := validateTimeString(stopTime); err != nil {
-				return err
-			}
-			var err error
-			subtractMinutes, err = stringTimeToMinutes(stopTime)
-			if err != nil {
-				return err
-			}
-
-			// Validate that subtract time doesn't exceed current cycle elapsed time
-			cycleStart := timer.CurrentCycleStart()
-			elapsed := deltaMinutes(cycleStart, getCurrentTime())
-			if subtractMinutes > elapsed {
-				return fmt.Errorf("Cannot subtract more time than currently elapsed in this cycle.")
-			}
-		}
-
+		// Calculate effective stop time
 		now := getCurrentTime()
-		// Calculate effective stop time (backdated if subtract time provided)
 		effectiveStopTime := now
-		if subtractMinutes > 0 {
-			effectiveStopTime = now.Add(-time.Duration(subtractMinutes) * time.Minute)
+
+		if stopTime != "" {
+			if strings.Contains(stopTime, ":") {
+				// Absolute clock time (HH:MM) — resolve on same day as cycle start
+				if err := validateClockTimeString(stopTime); err != nil {
+					return err
+				}
+				hour, _ := strconv.Atoi(stopTime[:2])
+				minute, _ := strconv.Atoi(stopTime[3:])
+
+				cycleStart := timer.CurrentCycleStart()
+				y, m, d := cycleStart.Date()
+				effectiveStopTime = time.Date(y, m, d, hour, minute, 0, 0, cycleStart.Location())
+
+				if effectiveStopTime.Before(cycleStart) {
+					return fmt.Errorf("Stop time %s is before cycle start %s.", stopTime, cycleStart.Format(TIME_ONLY_FORMAT))
+				}
+				if effectiveStopTime.After(now) {
+					return fmt.Errorf("Cannot set stop time in the future.")
+				}
+			} else {
+				// Duration subtraction (HHMM) — existing behavior
+				if err := validateTimeString(stopTime); err != nil {
+					return err
+				}
+				subtractMinutes, err := stringTimeToMinutes(stopTime)
+				if err != nil {
+					return err
+				}
+				cycleStart := timer.CurrentCycleStart()
+				elapsed := deltaMinutes(cycleStart, now)
+				if subtractMinutes > elapsed {
+					return fmt.Errorf("Cannot subtract more time than currently elapsed in this cycle.")
+				}
+				effectiveStopTime = now.Add(-time.Duration(subtractMinutes) * time.Minute)
+			}
 		}
+
 		stopTimeStr := effectiveStopTime.Format(DT_FORMAT)
 
 		// Calculate work duration: total_cycle_time - paused_time
@@ -1156,6 +1171,18 @@ func pauseCmd(timer *Timer, pauseTime string) error {
 }
 
 func checkCmd(timer *Timer) error {
+	// Warn if timer has been running since a previous day
+	if timer.Status == StatusRunning || timer.Status == StatusPaused {
+		cycleStart := timer.CurrentCycleStart()
+		now := getCurrentTime()
+		_, _, cycleDay := cycleStart.Date()
+		_, _, nowDay := now.Date()
+		if nowDay != cycleDay || now.Sub(cycleStart) >= 24*time.Hour {
+			fmt.Printf("Warning: Timer has been running since %s.\n  Use 'wt stop HH:MM' to set the actual stop time on %s.\n",
+				cycleStart.Format(DT_FORMAT), cycleStart.Format("2006-01-02"))
+		}
+	}
+
 	lines, err := buildInfoLogLines(timer)
 	if err != nil {
 		return err
