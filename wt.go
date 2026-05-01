@@ -1321,6 +1321,25 @@ func historyCmd(timer *Timer, logType string) error {
 			lineNum, startTimeOnly, statusSuffix, currentStr, pausedStr, totalStr, dayIndicator)
 	}
 
+	// If timer is stopped with completed cycles, show in-progress break when elapsed > 0
+	if timer.Status == StatusStopped && len(timer.Timeline) > 0 {
+		breakMinutes := deltaMinutes(currentTime, getCurrentTime())
+		if breakMinutes >= 0 {
+			startTimeOnly := currentTime.Format(TIME_ONLY_FORMAT)
+			breakStr := minutesToHourMinuteStr(breakMinutes)
+
+			now := getCurrentTime()
+			dayDiff := int(now.Sub(currentTime).Hours() / 24)
+			dayIndicator := ""
+			if dayDiff > 0 {
+				dayIndicator = fmt.Sprintf("  [+%d day]", dayDiff)
+			}
+
+			fmt.Printf("%02d. [%s => .....] Break: %s%s\n",
+				lineNum, startTimeOnly, breakStr, dayIndicator)
+		}
+	}
+
 	return nil
 }
 

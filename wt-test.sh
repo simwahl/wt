@@ -162,7 +162,8 @@ expected_log="01. [07:55 => 09:35] Work: 1h:40m (1h:40m)
 08. [14:05 => 14:05] Break: 0h:00m
 09. [14:05 => 14:50] Work: 0h:45m (5h:05m)
 10. [14:50 => 15:05] Break: 0h:15m
-11. [15:05 => 16:25] Work: 1h:05m |15m| (6h:10m)"
+11. [15:05 => 16:25] Work: 1h:05m |15m| (6h:10m)
+12. [16:25 => .....] Break: 0h:05m"
 actual_log=$($WT_CMD log)
 check_output "full day log matches expected" "$expected_log" "$actual_log"
 
@@ -191,7 +192,8 @@ run_wt start
 mock_time "2026-01-20 09:50"
 run_wt stop
 
-expected_log="01. [09:00 => 09:50] Work: 0h:40m |10m| (0h:40m)"
+expected_log="01. [09:00 => 09:50] Work: 0h:40m |10m| (0h:40m)
+02. [09:50 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "log shows work and paused time" "$expected_log" "$actual_log"
 
@@ -226,7 +228,8 @@ expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
 02. [09:20 => 09:25] Break: 0h:05m
 03. [09:25 => 09:40] Work: 0h:15m (0h:35m)
 04. [09:40 => 09:50] Break: 0h:10m
-05. [09:50 => 10:05] Work: 0h:15m (0h:50m)"
+05. [09:50 => 10:05] Work: 0h:15m (0h:50m)
+06. [10:05 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "log shows all cycles and breaks" "$expected_log" "$actual_log"
 
@@ -247,7 +250,8 @@ run_wt start 30
 mock_time "2026-01-20 10:15"
 run_wt stop
 
-expected_log="01. [09:30 => 10:15] Work: 0h:45m (0h:45m)"
+expected_log="01. [09:30 => 10:15] Work: 0h:45m (0h:45m)
+02. [10:15 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "log shows backdated start time" "$expected_log" "$actual_log"
 
@@ -275,7 +279,8 @@ run_wt stop
 
 expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
 02. [09:20 => 09:25] Break: 0h:05m
-03. [09:25 => 09:45] Work: 0h:20m (0h:40m)"
+03. [09:25 => 09:45] Work: 0h:20m (0h:40m)
+04. [09:45 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "log shows reduced break time" "$expected_log" "$actual_log"
 
@@ -321,7 +326,8 @@ run_wt stop
 
 run_wt mod 1 start 09:00
 
-expected_log="01. [09:00 => 09:30] Work: 0h:30m (0h:30m)"
+expected_log="01. [09:00 => 09:30] Work: 0h:30m (0h:30m)
+02. [09:30 => .....] Break: 1h:00m"
 actual_log=$($WT_CMD log)
 check_output "log shows adjusted start time" "$expected_log" "$actual_log"
 
@@ -346,7 +352,8 @@ run_wt start
 mock_time "2026-01-20 09:45"
 run_wt stop
 
-expected_log="01. [09:00 => 09:45] Work: 0h:15m |30m| (0h:15m)"
+expected_log="01. [09:00 => 09:45] Work: 0h:15m |30m| (0h:15m)
+02. [09:45 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "log shows mostly paused cycle" "$expected_log" "$actual_log"
 
@@ -377,7 +384,8 @@ run_wt start
 mock_time "2026-01-20 09:45"
 run_wt stop
 
-expected_log="01. [09:00 => 09:45] Work: 0h:25m |20m| (0h:25m)"
+expected_log="01. [09:00 => 09:45] Work: 0h:25m |20m| (0h:25m)
+02. [09:45 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "log shows accumulated paused time" "$expected_log" "$actual_log"
 
@@ -402,7 +410,8 @@ run_wt stop
 
 expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
 02. [09:20 => 09:20] Break: 0h:00m
-03. [09:20 => 09:40] Work: 0h:20m (0h:40m)"
+03. [09:20 => 09:40] Work: 0h:20m (0h:40m)
+04. [09:40 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "log shows zero-minute break" "$expected_log" "$actual_log"
 
@@ -428,7 +437,8 @@ run_wt start
 mock_time "2026-01-20 09:45"
 run_wt stop
 
-expected_log="01. [09:00 => 09:45] Work: 0h:25m |20m| (0h:25m)"
+expected_log="01. [09:00 => 09:45] Work: 0h:25m |20m| (0h:25m)
+02. [09:45 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "log shows backdated pause time" "$expected_log" "$actual_log"
 
@@ -540,7 +550,8 @@ run_wt stop
 run_wt mod 1 drop
 
 expected_log="01. [09:00 => 09:05] Break: 0h:05m
-02. [09:05 => 09:20] Work: 0h:15m (0h:15m)"
+02. [09:05 => 09:20] Work: 0h:15m (0h:15m)
+03. [09:20 => .....] Break: 0h:20m"
 actual_log=$($WT_CMD log)
 check_output "log shows remaining cycle with adjusted times" "$expected_log" "$actual_log"
 
@@ -570,7 +581,8 @@ run_wt mod 2 drop
 
 # When dropping a break, it means "I was actually working during that time"
 # Work 1 (20m) + Break (10m, now work) + Work 2 (15m) = 45m work, 09:00-09:45
-expected_log="01. [09:00 => 09:45] Work: 0h:45m (0h:45m)"
+expected_log="01. [09:00 => 09:45] Work: 0h:45m (0h:45m)
+02. [09:45 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "merged cycle spans from first start to second end" "$expected_log" "$actual_log"
 
@@ -608,7 +620,8 @@ run_wt mod 3 drop
 # = Work 1 (20m) + merged Break (10+15+15=40m) + Work 3 (30m)
 expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
 02. [09:20 => 10:00] Break: 0h:40m
-03. [10:00 => 10:30] Work: 0h:30m (0h:50m)"
+03. [10:00 => 10:30] Work: 0h:30m (0h:50m)
+04. [10:30 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "dropped work becomes break time" "$expected_log" "$actual_log"
 
@@ -635,7 +648,8 @@ run_wt restart 15
 mock_time "2026-01-20 10:20"
 run_wt stop
 
-expected_log="01. [09:45 => 10:20] Work: 0h:35m (0h:35m)"
+expected_log="01. [09:45 => 10:20] Work: 0h:35m (0h:35m)
+02. [10:20 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "restart with backdate creates fresh timer" "$expected_log" "$actual_log"
 
@@ -670,7 +684,8 @@ mock_time "2026-01-20 10:00"
 run_wt stop
 
 # Timeline should show single merged entry: 55 + 5 = 60 min total
-expected_log="01. [09:00 => 10:00] Work: 1h:00m (1h:00m)"
+expected_log="01. [09:00 => 10:00] Work: 1h:00m (1h:00m)
+02. [10:00 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "log shows single merged cycle after dropping break while running" "$expected_log" "$actual_log"
 
@@ -709,7 +724,8 @@ run_wt stop
 # First cycle now 40 min (30 + 10), break unchanged at 10 min, so cycle 3 starts at 09:50
 expected_log="01. [09:00 => 09:40] Work: 0h:40m (0h:40m)
 02. [09:40 => 09:50] Break: 0h:10m
-03. [09:50 => 10:15] Work: 0h:15m |10m| (0h:55m)"
+03. [09:50 => 10:15] Work: 0h:15m |10m| (0h:55m)
+04. [10:15 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "log shows modified cycle duration" "$expected_log" "$actual_log"
 
@@ -1042,7 +1058,8 @@ run_wt start
 mock_time "2026-01-21 01:30"
 run_wt stop
 
-expected_log="01. [23:00 => 01:30] Work: 2h:30m (2h:30m)  [+1 day]"
+expected_log="01. [23:00 => 01:30] Work: 2h:30m (2h:30m)  [+1 day]
+02. [01:30 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "log shows day indicator for midnight crossing" "$expected_log" "$actual_log"
 
@@ -1067,7 +1084,8 @@ run_wt mod 1 start 09:15
 mock_time "2026-01-20 09:45"
 run_wt stop
 
-expected_log="01. [09:15 => 09:45] Work: 0h:30m (0h:30m)"
+expected_log="01. [09:15 => 09:45] Work: 0h:30m (0h:30m)
+02. [09:45 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "mod start absolute adjusts first cycle later" "$expected_log" "$actual_log"
 
@@ -1085,7 +1103,8 @@ run_wt start
 mock_time "2026-01-20 09:30"
 run_wt stop 10
 
-expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)"
+expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
+02. [09:20 => .....] Break: 0h:10m"
 actual_log=$($WT_CMD log)
 check_output "stop with time subtraction reduces work time" "$expected_log" "$actual_log"
 
@@ -1116,7 +1135,8 @@ run_wt start
 mock_time "2026-01-20 09:35"
 run_wt stop 5
 
-expected_log="01. [09:00 => 09:30] Work: 0h:20m |10m| (0h:20m)"
+expected_log="01. [09:00 => 09:30] Work: 0h:20m |10m| (0h:20m)
+02. [09:30 => .....] Break: 0h:05m"
 actual_log=$($WT_CMD log)
 check_output "stop with time subtraction handles paused time correctly" "$expected_log" "$actual_log"
 
@@ -1143,7 +1163,8 @@ check_output "timer remains running after validation failure" "$expected_check" 
 
 # Verify we can still stop normally
 run_wt stop
-expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)"
+expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
+02. [09:20 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "timer can stop normally after validation failure" "$expected_log" "$actual_log"
 
@@ -1171,7 +1192,8 @@ run_wt stop 5
 
 expected_log="01. [09:00 => 09:30] Work: 0h:30m (0h:30m)
 02. [09:30 => 09:45] Break: 0h:15m
-03. [09:45 => 10:15] Work: 0h:30m (1h:00m)"
+03. [09:45 => 10:15] Work: 0h:30m (1h:00m)
+04. [10:15 => .....] Break: 0h:05m"
 actual_log=$($WT_CMD log)
 check_output "stop with time subtraction works in later cycles" "$expected_log" "$actual_log"
 
@@ -1198,7 +1220,8 @@ run_wt mod 3 start 09:25
 
 expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
 02. [09:20 => 09:25] Break: 0h:05m
-03. [09:25 => 09:45] Work: 0h:20m (0h:40m)"
+03. [09:25 => 09:45] Work: 0h:20m (0h:40m)
+04. [09:45 => .....] Break: 0h:05m"
 actual_log=$($WT_CMD log)
 check_output "mod start sets cycle boundary time" "$expected_log" "$actual_log"
 
@@ -1229,13 +1252,34 @@ run_wt mod 3 end 09:45
 
 expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
 02. [09:20 => 09:30] Break: 0h:10m
-03. [09:30 => 09:45] Work: 0h:15m (0h:35m)"
+03. [09:30 => 09:45] Work: 0h:15m (0h:35m)
+04. [09:45 => .....] Break: 0h:05m"
 actual_log=$($WT_CMD log)
 check_output "mod end sets cycle boundary time" "$expected_log" "$actual_log"
 
 expected_report="2026-01-20 | 09:00 -> 09:45 | Work: 0h:35m | Break: 0h:10m | Paused: 0h:00m | Total: 0h:45m"
 actual_report=$($WT_CMD report)
 check_output "report matches after cycle end boundary edit" "$expected_report" "$actual_report"
+
+###############################################################################
+# Test 34: Log shows ongoing break when stopped
+###############################################################################
+print_test "34" "Log shows ongoing break while stopped"
+setup_test
+
+mock_time "2026-01-20 09:17"
+run_wt new
+
+run_wt start
+mock_time "2026-01-20 09:42"
+run_wt stop
+
+# While still stopped at 09:47, log should show in-progress break
+mock_time "2026-01-20 09:47"
+expected_log="01. [09:17 => 09:42] Work: 0h:25m (0h:25m)
+02. [09:42 => .....] Break: 0h:05m"
+actual_log=$($WT_CMD log)
+check_output "log includes ongoing break line after stop" "$expected_log" "$actual_log"
 
 echo ""
 echo "=========================================="
