@@ -117,6 +117,10 @@ func main() {
 		Name:  "wt",
 		Usage: "Work timer for tracking pomodoro-style work/break cycles",
 		Action: func(ctx context.Context, cmd *cli.Command) error {
+			if cmd.Args().Len() > 0 {
+				return fmt.Errorf("No such command: %s. Run 'wt help' to see available commands.", cmd.Args().Get(0))
+			}
+
 			// Default action when no command is provided
 			timer, err := load()
 			if err != nil {

@@ -1060,6 +1060,16 @@ actual_error=$($WT_CMD log invalid 2>&1)
 check_output "error for invalid log type" "$expected_error" "$actual_error"
 
 ###############################################################################
+# Test 25b: Unknown command returns clear error
+###############################################################################
+print_test "25b" "Unknown command handling"
+setup_test
+
+expected_error="No such command: laflkajdf. Run 'wt help' to see available commands."
+actual_error=$($WT_CMD laflkajdf 2>&1 || true)
+check_output "error for unknown command" "$expected_error" "$actual_error"
+
+###############################################################################
 # Test 26: Work crossing midnight
 ###############################################################################
 print_test "26" "Work crossing midnight"
