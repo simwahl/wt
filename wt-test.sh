@@ -133,6 +133,7 @@ mock_time "2026-01-20 14:45"
 run_wt stop  # Work: 45 min
 
 # === Realize first morning cycle was actually 10 min longer ===
+mock_time "2026-01-20 14:55"
 run_wt mod 1 add 10  # Cycle 1: 90 -> 100 min
 
 # === Afternoon continued ===
@@ -161,14 +162,14 @@ expected_log="01. [07:55 => 09:35] Work: 1h:40m (1h:40m)
 07. [13:05 => 14:05] Work: 0h:50m |10m| (4h:20m)
 08. [14:05 => 14:05] Break: 0h:00m
 09. [14:05 => 14:50] Work: 0h:45m (5h:05m)
-10. [14:50 => 15:05] Break: 0h:15m
-11. [15:05 => 16:25] Work: 1h:05m |15m| (6h:10m)
+10. [14:50 => 14:55] Break: 0h:05m
+11. [14:55 => 16:25] Work: 1h:15m |15m| (6h:20m)
 12. [16:25 => .....] Break: 0h:05m"
 actual_log=$($WT_CMD log)
 check_output "full day log matches expected" "$expected_log" "$actual_log"
 
 # === Validate full day report ===
-expected_report="2026-01-20 | 07:55 -> 16:25 | Work: 6h:10m | Break: 1h:45m | Paused: 0h:35m | Total: 8h:30m"
+expected_report="2026-01-20 | 07:55 -> 16:25 | Work: 6h:20m | Break: 1h:35m | Paused: 0h:35m | Total: 8h:30m"
 actual_report=$($WT_CMD report)
 check_output "full day report matches expected" "$expected_report" "$actual_report"
 
@@ -301,9 +302,11 @@ run_wt start
 mock_time "2026-01-20 09:05"
 run_wt stop
 
+mock_time "2026-01-20 09:20"
 run_wt mod 1 add 15
 
-expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)"
+expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
+02. [09:20 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "log shows modified duration" "$expected_log" "$actual_log"
 
@@ -787,14 +790,17 @@ mock_time "2026-01-20 09:40"
 run_wt stop
 
 # Add 10min to stopped cycle's paused time
+mock_time "2026-01-20 09:50"
 run_wt mod 1 pause add 10
-expected_log="01. [09:00 => 09:50] Work: 0h:35m |15m| (0h:35m)"
+expected_log="01. [09:00 => 09:50] Work: 0h:35m |15m| (0h:35m)
+02. [09:50 => .....] Break: 0h:00m"
 actual_log=$($WT_CMD log)
 check_output "stopped cycle paused time increased" "$expected_log" "$actual_log"
 
 # Subtract 5min from stopped cycle's paused time
 run_wt mod 1 pause sub 5
-expected_log="01. [09:00 => 09:45] Work: 0h:35m |10m| (0h:35m)"
+expected_log="01. [09:00 => 09:45] Work: 0h:35m |10m| (0h:35m)
+02. [09:45 => .....] Break: 0h:05m"
 actual_log=$($WT_CMD log)
 check_output "stopped cycle paused time decreased" "$expected_log" "$actual_log"
 
@@ -807,21 +813,29 @@ run_wt start
 mock_time "2026-01-20 10:10"
 
 # Add 10min to current running cycle's paused time (simulating forgot to pause)
-# Work is calculated from timeline start (09:45), not actual start
+# Work is calculated from timeline start (09:50), not actual start
 run_wt mod 3 pause add 10
 expected_log="01. [09:00 => 09:45] Work: 0h:35m |10m| (0h:35m)
-02. [09:45 => 09:45] Break: 0h:00m
-03. [09:45 => .....] Work: 0h:10m |15m| (0h:45m)"
+02. [09:45 => 09:50] Break: 0h:05m
+03. [09:50 => .....] Work: 0h:05m |15m| (0h:40m)"
 actual_log=$($WT_CMD log)
 check_output "current cycle paused time modified" "$expected_log" "$actual_log"
 
-# Verify modifying pause time while paused is blocked
+# Verify modifying pause time while paused is allowed
 run_wt pause
 mock_time "2026-01-20 10:15"
-expected_error="Cannot modify pause time while paused.
-Resume first with 'wt start', then modify pause time."
-actual_error=$($WT_CMD mod 3 pause sub 5 2>&1)
-check_output "cannot modify pause time while paused" "$expected_error" "$actual_error"
+run_wt mod 3 pause sub 5
+expected_log="01. [09:00 => 09:45] Work: 0h:35m |10m| (0h:35m)
+02. [09:45 => 09:50] Break: 0h:05m
+03. [09:50 => .....] Work (paused): 0h:10m |15m| (0h:45m)"
+actual_log=$($WT_CMD log)
+check_output "can modify pause time while paused" "$expected_log" "$actual_log"
+
+# Verify paused time still cannot exceed elapsed cycle time
+mock_time "2026-01-20 10:20"
+expected_error="Error: Paused time cannot exceed elapsed cycle time (0h:30m)."
+actual_error=$($WT_CMD mod 3 pause add 21 2>&1)
+check_output "cannot exceed elapsed time when modifying paused cycle" "$expected_error" "$actual_error"
 
 ###############################################################################
 # Test 18: Cannot modify duration of current running/paused cycle
@@ -1280,6 +1294,33 @@ expected_log="01. [09:17 => 09:42] Work: 0h:25m (0h:25m)
 02. [09:42 => .....] Break: 0h:05m"
 actual_log=$($WT_CMD log)
 check_output "log includes ongoing break line after stop" "$expected_log" "$actual_log"
+
+###############################################################################
+# Test 35: Mod last cycle end keeps stop boundary in sync
+###############################################################################
+print_test "35" "Mod last cycle end keeps break start aligned"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+
+run_wt start
+mock_time "2026-01-20 09:10"
+run_wt stop
+
+# Extend last completed cycle end while stopped
+mock_time "2026-01-20 09:12"
+run_wt mod 1 end 09:12
+
+# Next start should calculate break from 09:12, not old stop boundary
+mock_time "2026-01-20 09:20"
+run_wt start
+
+expected_log="01. [09:00 => 09:12] Work: 0h:12m (0h:12m)
+02. [09:12 => 09:20] Break: 0h:08m
+03. [09:20 => .....] Work: 0h:00m (0h:12m)"
+actual_log=$($WT_CMD log)
+check_output "break starts at modified cycle end" "$expected_log" "$actual_log"
 
 echo ""
 echo "=========================================="

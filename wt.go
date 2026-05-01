@@ -619,6 +619,9 @@ func validateTimerConsistency(timer *Timer) error {
 
 	now := getCurrentTime()
 	cycleStart := timer.CurrentCycleStart()
+	if timer.Status == StatusStopped && len(timer.Timeline) > 0 && cycleStart.After(now) {
+		return fmt.Errorf("Invalid state: last completed cycle cannot end in the future.")
+	}
 	if (timer.Status == StatusRunning || timer.Status == StatusPaused) && cycleStart.After(now) {
 		return fmt.Errorf("Invalid state: current cycle start cannot be in the future.")
 	}
@@ -647,6 +650,19 @@ func validateTimerConsistency(timer *Timer) error {
 	}
 
 	return nil
+}
+
+func syncStopDatetimeForStopped(timer *Timer) {
+	if timer.Status != StatusStopped {
+		return
+	}
+
+	if timer.DayStart == "" || len(timer.Timeline) == 0 {
+		timer.StopDatetimeStr = ""
+		return
+	}
+
+	timer.StopDatetimeStr = timer.CurrentCycleStart().Format(DT_FORMAT)
 }
 
 func isDigits(s string) bool {
@@ -1476,6 +1492,7 @@ func modCycleStartCmd(timer *Timer, cycleNumStr, timeStr string) error {
 	if err := validateTimerConsistency(timer); err != nil {
 		return err
 	}
+	syncStopDatetimeForStopped(timer)
 
 	logDebug(fmt.Sprintf("wt mod %s start %s", cycleNumStr, timeStr))
 	if err := save(timer); err != nil {
@@ -1527,6 +1544,7 @@ func modCycleEndCmd(timer *Timer, cycleNumStr, timeStr string) error {
 	if err := validateTimerConsistency(timer); err != nil {
 		return err
 	}
+	syncStopDatetimeForStopped(timer)
 
 	logDebug(fmt.Sprintf("wt mod %s end %s", cycleNumStr, timeStr))
 	if err := save(timer); err != nil {
@@ -1594,6 +1612,7 @@ func modDurationCmd(timer *Timer, cycleNumStr, operation, timeStr string) error 
 	if err := validateTimerConsistency(timer); err != nil {
 		return err
 	}
+	syncStopDatetimeForStopped(timer)
 	if err := save(timer); err != nil {
 		return err
 	}
@@ -1617,12 +1636,6 @@ func modPauseCmd(timer *Timer, cycleNumStr, operation, timeStr string) error {
 
 	isCurrentCycle := (timer.Status == StatusRunning || timer.Status == StatusPaused) &&
 		cycleNum == len(timer.Timeline)+1
-
-	if isCurrentCycle && timer.Status == StatusPaused {
-		fmt.Println("Cannot modify pause time while paused.")
-		fmt.Println("Resume first with 'wt start', then modify pause time.")
-		return nil
-	}
 
 	maxCycle := len(timer.Timeline)
 	if timer.Status == StatusRunning || timer.Status == StatusPaused {
@@ -1651,21 +1664,51 @@ func modPauseCmd(timer *Timer, cycleNumStr, operation, timeStr string) error {
 	}
 
 	if isCurrentCycle {
-		if operation == "add" {
-			timer.PausedMinutes += minutes
-		} else {
-			newPaused := timer.PausedMinutes - minutes
-			if newPaused < 0 {
-				fmt.Printf("Error: Paused time would be negative. Current: %s\n", minutesToHourMinuteStr(timer.PausedMinutes))
+		if timer.Status == StatusPaused {
+			now := getCurrentTime()
+			pauseStart, _ := parseTime(timer.PauseStartStr)
+			currentPause := deltaMinutes(pauseStart, now)
+			totalPaused := timer.PausedMinutes + currentPause
+
+			newTotalPaused := totalPaused
+			if operation == "add" {
+				newTotalPaused += minutes
+			} else {
+				newTotalPaused -= minutes
+				if newTotalPaused < 0 {
+					fmt.Printf("Error: Paused time would be negative. Current: %s\n", minutesToHourMinuteStr(totalPaused))
+					return nil
+				}
+			}
+
+			cycleStart := timer.CurrentCycleStart()
+			elapsed := deltaMinutes(cycleStart, now)
+			if newTotalPaused > elapsed {
+				fmt.Printf("Error: Paused time cannot exceed elapsed cycle time (%s).\n", minutesToHourMinuteStr(elapsed))
 				return nil
 			}
-			timer.PausedMinutes = newPaused
+
+			// Keep paused state active while rebasing total paused time on pause start.
+			timer.PausedMinutes = 0
+			timer.PauseStartStr = now.Add(-time.Duration(newTotalPaused) * time.Minute).Format(DT_FORMAT)
+		} else {
+			if operation == "add" {
+				timer.PausedMinutes += minutes
+			} else {
+				newPaused := timer.PausedMinutes - minutes
+				if newPaused < 0 {
+					fmt.Printf("Error: Paused time would be negative. Current: %s\n", minutesToHourMinuteStr(timer.PausedMinutes))
+					return nil
+				}
+				timer.PausedMinutes = newPaused
+			}
 		}
 
 		logDebug(fmt.Sprintf("wt mod %s pause %s %s", cycleNumStr, operation, timeStr))
 		if err := validateTimerConsistency(timer); err != nil {
 			return err
 		}
+		syncStopDatetimeForStopped(timer)
 		if err := save(timer); err != nil {
 			return err
 		}
@@ -1703,6 +1746,7 @@ func modPauseCmd(timer *Timer, cycleNumStr, operation, timeStr string) error {
 		if err := validateTimerConsistency(timer); err != nil {
 			return err
 		}
+		syncStopDatetimeForStopped(timer)
 		if err := save(timer); err != nil {
 			return err
 		}
@@ -1810,6 +1854,7 @@ func modDropCmd(timer *Timer, cycleNumStr string) error {
 	if err := validateTimerConsistency(timer); err != nil {
 		return err
 	}
+	syncStopDatetimeForStopped(timer)
 	if err := save(timer); err != nil {
 		return err
 	}
