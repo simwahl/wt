@@ -149,7 +149,7 @@ mock_time "2026-01-20 16:30"
 run_wt stop  # Work: 65 min (16:30 - 15:05 timeline start - 15 paused)
 
 # === End of day adjustment: actually started 5 min earlier ===
-run_wt mod start sub 5  # Day start: 08:00 -> 07:55
+run_wt mod 1 start 07:55  # Day start: 08:00 -> 07:55
 
 # === Validate full day log ===
 expected_log="01. [07:55 => 09:35] Work: 1h:40m (1h:40m)
@@ -307,9 +307,9 @@ actual_report=$($WT_CMD report)
 check_output "report shows correct totals" "$expected_report" "$actual_report"
 
 ###############################################################################
-# Test 7: Mod start to change day start time
+# Test 7: Mod start to set day start time
 ###############################################################################
-print_test "7" "Mod start to change day start time"
+print_test "7" "Mod start to set day start time"
 setup_test
 
 mock_time "2026-01-20 10:00"
@@ -319,7 +319,7 @@ run_wt start
 mock_time "2026-01-20 10:30"
 run_wt stop
 
-run_wt mod start sub 60
+run_wt mod 1 start 09:00
 
 expected_log="01. [09:00 => 09:30] Work: 0h:30m (0h:30m)"
 actual_log=$($WT_CMD log)
@@ -826,7 +826,8 @@ mock_time "2026-01-20 09:50"
 
 # Try to modify current running cycle (cycle 3) - should error
 expected_error="Cannot modify duration of current running cycle.
-To adjust when this cycle started, modify the previous cycle or break duration.
+To set this cycle start directly: wt mod 3 start <HH:MM>
+To set this cycle end directly: wt mod 3 end <HH:MM>
 To adjust paused time: wt mod 3 pause <add|sub> <time>"
 actual_error=$($WT_CMD mod 3 add 10 2>&1)
 check_output "error when modifying running cycle duration" "$expected_error" "$actual_error"
@@ -835,7 +836,8 @@ check_output "error when modifying running cycle duration" "$expected_error" "$a
 run_wt pause
 mock_time "2026-01-20 09:55"
 expected_error="Cannot modify duration of current running cycle.
-To adjust when this cycle started, modify the previous cycle or break duration.
+To set this cycle start directly: wt mod 3 start <HH:MM>
+To set this cycle end directly: wt mod 3 end <HH:MM>
 To adjust paused time: wt mod 3 pause <add|sub> <time>"
 actual_error=$($WT_CMD mod 3 sub 5 2>&1)
 check_output "error when modifying paused cycle duration" "$expected_error" "$actual_error"
@@ -1049,9 +1051,9 @@ actual_report=$($WT_CMD report)
 check_output "report shows day indicator for midnight crossing" "$expected_report" "$actual_report"
 
 ###############################################################################
-# Test 27: Mod start add direction while running first cycle
+# Test 27: Mod start absolute while running first cycle
 ###############################################################################
-print_test "27" "Mod start add direction while running first cycle"
+print_test "27" "Mod start absolute while running first cycle"
 setup_test
 
 mock_time "2026-01-20 09:00"
@@ -1060,14 +1062,14 @@ run_wt new
 run_wt start
 mock_time "2026-01-20 09:30"
 
-# Mod start add 15 should make it appear we started later (09:15)
-run_wt mod start add 15
+# Set cycle 1/day start boundary to 09:15 while first cycle is running
+run_wt mod 1 start 09:15
 mock_time "2026-01-20 09:45"
 run_wt stop
 
 expected_log="01. [09:15 => 09:45] Work: 0h:30m (0h:30m)"
 actual_log=$($WT_CMD log)
-check_output "mod start add adjusts first cycle later" "$expected_log" "$actual_log"
+check_output "mod start absolute adjusts first cycle later" "$expected_log" "$actual_log"
 
 ###############################################################################
 # Test 28: Stop with time subtraction - basic case
@@ -1172,6 +1174,68 @@ expected_log="01. [09:00 => 09:30] Work: 0h:30m (0h:30m)
 03. [09:45 => 10:15] Work: 0h:30m (1h:00m)"
 actual_log=$($WT_CMD log)
 check_output "stop with time subtraction works in later cycles" "$expected_log" "$actual_log"
+
+###############################################################################
+# Test 32: Mod cycle start boundary with absolute clock time
+###############################################################################
+print_test "32" "Mod cycle start boundary with HH:MM"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+
+run_wt start
+mock_time "2026-01-20 09:20"
+run_wt stop
+
+mock_time "2026-01-20 09:30"
+run_wt start
+mock_time "2026-01-20 09:50"
+run_wt stop
+
+# Move cycle 3 start from 09:30 to 09:25 by adjusting the boundary
+run_wt mod 3 start 09:25
+
+expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
+02. [09:20 => 09:25] Break: 0h:05m
+03. [09:25 => 09:45] Work: 0h:20m (0h:40m)"
+actual_log=$($WT_CMD log)
+check_output "mod start sets cycle boundary time" "$expected_log" "$actual_log"
+
+expected_report="2026-01-20 | 09:00 -> 09:45 | Work: 0h:40m | Break: 0h:05m | Paused: 0h:00m | Total: 0h:45m"
+actual_report=$($WT_CMD report)
+check_output "report matches after cycle start boundary edit" "$expected_report" "$actual_report"
+
+###############################################################################
+# Test 33: Mod cycle end boundary with absolute clock time
+###############################################################################
+print_test "33" "Mod cycle end boundary with HH:MM"
+setup_test
+
+mock_time "2026-01-20 09:00"
+run_wt new
+
+run_wt start
+mock_time "2026-01-20 09:20"
+run_wt stop
+
+mock_time "2026-01-20 09:30"
+run_wt start
+mock_time "2026-01-20 09:50"
+run_wt stop
+
+# Move cycle 3 end from 09:50 to 09:45 by shortening cycle 3 elapsed duration
+run_wt mod 3 end 09:45
+
+expected_log="01. [09:00 => 09:20] Work: 0h:20m (0h:20m)
+02. [09:20 => 09:30] Break: 0h:10m
+03. [09:30 => 09:45] Work: 0h:15m (0h:35m)"
+actual_log=$($WT_CMD log)
+check_output "mod end sets cycle boundary time" "$expected_log" "$actual_log"
+
+expected_report="2026-01-20 | 09:00 -> 09:45 | Work: 0h:35m | Break: 0h:10m | Paused: 0h:00m | Total: 0h:45m"
+actual_report=$($WT_CMD report)
+check_output "report matches after cycle end boundary edit" "$expected_report" "$actual_report"
 
 echo ""
 echo "=========================================="

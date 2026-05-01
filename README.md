@@ -82,15 +82,14 @@ This completes the current cycle and adds its time to your total.
 **Adjust day start time** (when you actually started working):
 
 ```bash
-wt mod start sub 30  # Started 30 min earlier than first start command
-wt mod start add 15  # Started 15 min later than first start command
+wt mod 1 start 09:00  # Set cycle 1 start (day start) to 09:00
 ```
 
 This is useful when you forgot to start the timer on time. The timer tracks your work day start time and calculates all cycle timestamps from there. For example:
 
 - You run `wt start` at 09:30
 - You realize you actually started working at 09:00
-- Run `wt mod start sub 30` to adjust the day start to 09:00
+- Run `wt mod 1 start 09:00` to adjust day start via cycle 1
 - All timestamps in your log will shift to reflect the correct start time
 
 **How timestamps work:** The timer only stores your day start time and the duration of each work/break cycle. All the timestamps you see in `wt log` are calculated by adding up durations from the day start. This means when you modify the day start or any cycle duration, all subsequent timestamps automatically recalculate correctly.
@@ -110,6 +109,8 @@ wt log
 Then modify a specific cycle using its number:
 
 ```bash
+wt mod 3 start 14:10    # Set cycle 3 start boundary to 14:10
+wt mod 3 end 15:20      # Set cycle 3 end boundary to 15:20
 wt mod 1 add 10        # Add 10 minutes to cycle 1's duration
 wt mod 3 sub 5         # Subtract 5 minutes from cycle 3
 wt mod 2 drop          # Remove cycle 2 (merges adjacent work/break)
@@ -121,6 +122,7 @@ wt mod 1 pause add 10  # Add 10 minutes to cycle 1's paused time (work cycles on
 You can also modify the currently active cycle (useful when you forgot to pause):
 
 ```bash
+wt mod 3 start 13:05   # Set current cycle start boundary to 13:05
 wt mod 3 pause add 5   # Add 5 min pause to current cycle (e.g., bathroom break)
 wt mod 2 drop          # Remove previous break while timer is running
 ```
@@ -134,6 +136,7 @@ wt mod            # Shows available mod commands
 **Note:**
 
 - Most mod commands work while timer is running or paused
+- `mod <num> start` and `mod <num> end` use absolute clock times in `HH:MM` format
 - Can reduce duration to 0 minutes (helpful for finding mistakes)
 - Dropping a break between work cycles merges them (break time becomes work time, since you were actually working)
 - Dropping a work cycle between breaks merges them (work time becomes break time, since you weren't actually working)

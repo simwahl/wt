@@ -208,11 +208,13 @@ func main() {
 			{
 				Name:      "mod",
 				Usage:     "Modify timeline entries (work and break cycles)",
-				ArgsUsage: "[start|<num>] [drop|pause|<add|sub>] [time]",
-				Description: `Modify day start time, cycle durations, or paused time.
+				ArgsUsage: "<num> [drop|pause|start|end|<add|sub>] [time]",
+				Description: `Modify cycle boundaries, cycle durations, or paused time.
    Examples:
      wt mod                           - Show usage help
-     wt mod start sub 30              - Started 30min earlier
+	     wt mod 1 start 08:30             - Set cycle 1/day start boundary
+	     wt mod 3 start 14:10             - Set cycle 3 start boundary
+	     wt mod 3 end 15:20               - Set cycle 3 end boundary
      wt mod 3 add 15                  - Add 15min to cycle 3
      wt mod 5 pause add 10            - Add 10min paused time to cycle 5
      wt mod 2 drop                    - Remove cycle 2`,
@@ -227,12 +229,16 @@ func main() {
 						return modListCmd()
 					}
 
-					if len(args) == 3 && args[0] == "start" {
-						return modStartCmd(timer, args[1], args[2])
-					}
-
 					if len(args) == 2 && args[1] == "drop" {
 						return modDropCmd(timer, args[0])
+					}
+
+					if len(args) == 3 && args[1] == "start" {
+						return modCycleStartCmd(timer, args[0], args[2])
+					}
+
+					if len(args) == 3 && args[1] == "end" {
+						return modCycleEndCmd(timer, args[0], args[2])
 					}
 
 					if len(args) == 4 && args[1] == "pause" {
@@ -470,6 +476,173 @@ func validateTimeString(timeStr string) error {
 		minutes, _ := strconv.Atoi(timeStr[len(timeStr)-2:])
 		if minutes > 59 {
 			return fmt.Errorf("Incorrect time format. Minutes cannot exceed 59.")
+		}
+	}
+
+	return nil
+}
+
+func validateClockTimeString(timeStr string) error {
+	if len(timeStr) != 5 {
+		return fmt.Errorf("Incorrect time format. Should be HH:MM.")
+	}
+
+	parts := strings.Split(timeStr, ":")
+	if len(parts) != 2 || len(parts[0]) != 2 || len(parts[1]) != 2 {
+		return fmt.Errorf("Incorrect time format. Should be HH:MM.")
+	}
+
+	hour, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return fmt.Errorf("Incorrect time format. Should be HH:MM.")
+	}
+
+	minute, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return fmt.Errorf("Incorrect time format. Should be HH:MM.")
+	}
+
+	if hour < 0 || hour > 23 || minute < 0 || minute > 59 {
+		return fmt.Errorf("Incorrect time format. Should be HH:MM.")
+	}
+
+	return nil
+}
+
+func resolveClockTimeNear(reference time.Time, timeStr string) (time.Time, error) {
+	if err := validateClockTimeString(timeStr); err != nil {
+		return time.Time{}, err
+	}
+
+	hour, _ := strconv.Atoi(timeStr[:2])
+	minute, _ := strconv.Atoi(timeStr[3:])
+
+	base := time.Date(reference.Year(), reference.Month(), reference.Day(), hour, minute, 0, 0, reference.Location())
+	before := base.Add(-24 * time.Hour)
+	after := base.Add(24 * time.Hour)
+
+	best := base
+	bestDiff := absDuration(reference.Sub(base))
+
+	beforeDiff := absDuration(reference.Sub(before))
+	if beforeDiff < bestDiff {
+		best = before
+		bestDiff = beforeDiff
+	}
+
+	afterDiff := absDuration(reference.Sub(after))
+	if afterDiff < bestDiff {
+		best = after
+	}
+
+	return best, nil
+}
+
+func absDuration(d time.Duration) time.Duration {
+	if d < 0 {
+		return -d
+	}
+	return d
+}
+
+func maxCycleNumber(timer *Timer) int {
+	maxCycle := len(timer.Timeline)
+	if timer.Status == StatusRunning || timer.Status == StatusPaused {
+		maxCycle++
+	}
+	return maxCycle
+}
+
+func cycleStartByNumber(timer *Timer, cycleNum int) (time.Time, error) {
+	if timer.DayStart == "" {
+		return time.Time{}, fmt.Errorf("No day_start to modify.")
+	}
+
+	if cycleNum < 1 || cycleNum > maxCycleNumber(timer) {
+		return time.Time{}, fmt.Errorf("Cycle %d does not exist. Valid range: 1-%d", cycleNum, maxCycleNumber(timer))
+	}
+
+	start, _ := parseTime(timer.DayStart)
+	for i := 1; i < cycleNum; i++ {
+		start = start.Add(time.Duration(timer.Timeline[i-1].Duration()) * time.Minute)
+	}
+
+	return start, nil
+}
+
+func cycleEndByNumber(timer *Timer, cycleNum int) (time.Time, error) {
+	if cycleNum < 1 || cycleNum > len(timer.Timeline) {
+		return time.Time{}, fmt.Errorf("Cycle %d does not exist. Valid range: 1-%d", cycleNum, len(timer.Timeline))
+	}
+
+	start, err := cycleStartByNumber(timer, cycleNum)
+	if err != nil {
+		return time.Time{}, err
+	}
+
+	entry := timer.Timeline[cycleNum-1]
+	return start.Add(time.Duration(entry.Duration()) * time.Minute), nil
+}
+
+func setEntryElapsedDuration(entry *TimelineEntry, newElapsed int) error {
+	if newElapsed < 0 {
+		return fmt.Errorf("Error: Duration would be negative.")
+	}
+
+	if entry.Type == "break" {
+		entry.Minutes = newElapsed
+		return nil
+	}
+
+	newWork := newElapsed - entry.PausedMinutes
+	if newWork < 0 {
+		return fmt.Errorf("Error: Elapsed duration (%s) cannot be less than paused time (%s).", minutesToHourMinuteStr(newElapsed), minutesToHourMinuteStr(entry.PausedMinutes))
+	}
+
+	entry.Minutes = newWork
+	return nil
+}
+
+func validateTimerConsistency(timer *Timer) error {
+	if timer.DayStart == "" {
+		return nil
+	}
+
+	for i, entry := range timer.Timeline {
+		if entry.Minutes < 0 {
+			return fmt.Errorf("Cycle %d has negative duration.", i+1)
+		}
+		if entry.PausedMinutes < 0 {
+			return fmt.Errorf("Cycle %d has negative paused time.", i+1)
+		}
+	}
+
+	now := getCurrentTime()
+	cycleStart := timer.CurrentCycleStart()
+	if (timer.Status == StatusRunning || timer.Status == StatusPaused) && cycleStart.After(now) {
+		return fmt.Errorf("Invalid state: current cycle start cannot be in the future.")
+	}
+
+	if timer.Status == StatusRunning {
+		elapsed := deltaMinutes(cycleStart, now)
+		if timer.PausedMinutes > elapsed {
+			return fmt.Errorf("Invalid state: paused time cannot exceed elapsed cycle time.")
+		}
+	}
+
+	if timer.Status == StatusPaused {
+		pauseStart, err := parseTime(timer.PauseStartStr)
+		if err != nil {
+			return err
+		}
+		if pauseStart.After(now) {
+			return fmt.Errorf("Invalid state: pause start cannot be in the future.")
+		}
+
+		elapsed := deltaMinutes(cycleStart, now)
+		totalPaused := timer.PausedMinutes + deltaMinutes(pauseStart, now)
+		if totalPaused > elapsed {
+			return fmt.Errorf("Invalid state: paused time cannot exceed elapsed cycle time.")
 		}
 	}
 
@@ -1228,76 +1401,120 @@ func reportCmd(timer *Timer, workTimeOnly bool) error {
 
 func modListCmd() error {
 	fmt.Println("Usage:")
-	fmt.Println("  wt mod start <add|sub> <time>       - adjust day start time")
+	fmt.Println("  wt mod 1 start <HH:MM>              - set day start (cycle 1 boundary)")
+	fmt.Println("  wt mod <num> start <HH:MM>          - set cycle start boundary")
+	fmt.Println("  wt mod <num> end <HH:MM>            - set cycle end boundary")
 	fmt.Println("  wt mod <num> <add|sub> <time>       - adjust cycle duration")
 	fmt.Println("  wt mod <num> pause <add|sub> <time> - adjust paused time")
 	fmt.Println("  wt mod <num> drop                   - remove cycle")
 	return nil
 }
 
-func modStartCmd(timer *Timer, operation, timeStr string) error {
-	if timer.DayStart == "" {
-		fmt.Println("No day_start to modify.")
+func modCycleStartCmd(timer *Timer, cycleNumStr, timeStr string) error {
+	if !isDigits(cycleNumStr) {
+		fmt.Printf("Invalid cycle number: %s\n", cycleNumStr)
 		return nil
 	}
 
-	if operation != "add" && operation != "sub" {
-		return fmt.Errorf("Invalid operation: %s. Use 'add' or 'sub'", operation)
+	cycleNum, _ := strconv.Atoi(cycleNumStr)
+	maxCycle := maxCycleNumber(timer)
+	if cycleNum < 1 || cycleNum > maxCycle {
+		fmt.Printf("Cycle %d does not exist. Valid range: 1-%d\n", cycleNum, maxCycle)
+		return nil
 	}
 
-	if !isDigits(timeStr) {
-		return fmt.Errorf("Invalid time format. Should be digits only.")
-	}
-
-	minutes, err := stringTimeToMinutes(timeStr)
+	oldStart, err := cycleStartByNumber(timer, cycleNum)
 	if err != nil {
 		return err
 	}
 
-	dayStart, _ := parseTime(timer.DayStart)
-	var newDayStart time.Time
-	if operation == "sub" {
-		newDayStart = dayStart.Add(-time.Duration(minutes) * time.Minute)
+	newStart, err := resolveClockTimeNear(oldStart, timeStr)
+	if err != nil {
+		return err
+	}
+	if newStart.After(getCurrentTime()) {
+		return fmt.Errorf("Cannot set cycle start in the future.")
+	}
+
+	shiftMinutes := deltaMinutes(oldStart, newStart)
+
+	if cycleNum == 1 {
+		timer.DayStart = newStart.Format(DT_FORMAT)
+
+		if len(timer.Timeline) == 0 && (timer.Status == StatusRunning || timer.Status == StatusPaused) && timer.PauseStartStr != "" {
+			pauseStart, _ := parseTime(timer.PauseStartStr)
+			timer.PauseStartStr = pauseStart.Add(time.Duration(shiftMinutes) * time.Minute).Format(DT_FORMAT)
+		}
 	} else {
-		newDayStart = dayStart.Add(time.Duration(minutes) * time.Minute)
-	}
-
-	timer.DayStart = newDayStart.Format(DT_FORMAT)
-
-	// If currently running the first work cycle, also adjust PauseStartStr
-	if (timer.Status == StatusRunning || timer.Status == StatusPaused) && timer.PauseStartStr != "" {
-		hasWorkCycles := false
-		for _, entry := range timer.Timeline {
-			if entry.Type == "work" {
-				hasWorkCycles = true
-				break
-			}
-		}
-
-		if !hasWorkCycles {
-			pauseStartDt, _ := parseTime(timer.PauseStartStr)
-
-			var newPauseStart time.Time
-			if operation == "sub" {
-				newPauseStart = pauseStartDt.Add(-time.Duration(minutes) * time.Minute)
-			} else {
-				newPauseStart = pauseStartDt.Add(time.Duration(minutes) * time.Minute)
-			}
-
-			timer.PauseStartStr = newPauseStart.Format(DT_FORMAT)
+		prevEntry := &timer.Timeline[cycleNum-2]
+		newPrevElapsed := prevEntry.Duration() + shiftMinutes
+		if err := setEntryElapsedDuration(prevEntry, newPrevElapsed); err != nil {
+			fmt.Println(err)
+			return nil
 		}
 	}
 
-	logDebug(fmt.Sprintf("wt mod start %s %s", operation, timeStr))
+	if err := validateTimerConsistency(timer); err != nil {
+		return err
+	}
+
+	logDebug(fmt.Sprintf("wt mod %s start %s", cycleNumStr, timeStr))
 	if err := save(timer); err != nil {
 		return err
 	}
 
-	sign := "+"
-	if operation == "sub" {
-		sign = "-"
+	printMessageIfNotSilent(timer, fmt.Sprintf("Set cycle %d start to %s", cycleNum, newStart.Format(TIME_ONLY_FORMAT)))
+
+	return nil
+}
+
+func modCycleEndCmd(timer *Timer, cycleNumStr, timeStr string) error {
+	if !isDigits(cycleNumStr) {
+		fmt.Printf("Invalid cycle number: %s\n", cycleNumStr)
+		return nil
 	}
-	printMessageIfNotSilent(timer, fmt.Sprintf("Day start adjusted by %s%s", sign, minutesToHourMinuteStr(minutes)))
+
+	cycleNum, _ := strconv.Atoi(cycleNumStr)
+	if cycleNum < 1 || cycleNum > len(timer.Timeline) {
+		fmt.Printf("Cycle %d does not exist. Valid range: 1-%d\n", cycleNum, len(timer.Timeline))
+		return nil
+	}
+
+	oldEnd, err := cycleEndByNumber(timer, cycleNum)
+	if err != nil {
+		return err
+	}
+
+	newEnd, err := resolveClockTimeNear(oldEnd, timeStr)
+	if err != nil {
+		return err
+	}
+	if newEnd.After(getCurrentTime()) {
+		return fmt.Errorf("Cannot set cycle end in the future.")
+	}
+
+	start, err := cycleStartByNumber(timer, cycleNum)
+	if err != nil {
+		return err
+	}
+
+	newElapsed := deltaMinutes(start, newEnd)
+	entry := &timer.Timeline[cycleNum-1]
+	if err := setEntryElapsedDuration(entry, newElapsed); err != nil {
+		fmt.Println(err)
+		return nil
+	}
+
+	if err := validateTimerConsistency(timer); err != nil {
+		return err
+	}
+
+	logDebug(fmt.Sprintf("wt mod %s end %s", cycleNumStr, timeStr))
+	if err := save(timer); err != nil {
+		return err
+	}
+
+	printMessageIfNotSilent(timer, fmt.Sprintf("Set cycle %d end to %s", cycleNum, newEnd.Format(TIME_ONLY_FORMAT)))
 
 	return nil
 }
@@ -1313,7 +1530,8 @@ func modDurationCmd(timer *Timer, cycleNumStr, operation, timeStr string) error 
 	// Check if user is trying to modify current running/paused cycle
 	if (timer.Status == StatusRunning || timer.Status == StatusPaused) && cycleNum == len(timer.Timeline)+1 {
 		fmt.Println("Cannot modify duration of current running cycle.")
-		fmt.Println("To adjust when this cycle started, modify the previous cycle or break duration.")
+		fmt.Printf("To set this cycle start directly: wt mod %d start <HH:MM>\n", cycleNum)
+		fmt.Printf("To set this cycle end directly: wt mod %d end <HH:MM>\n", cycleNum)
 		fmt.Printf("To adjust paused time: wt mod %d pause <add|sub> <time>\n", cycleNum)
 		return nil
 	}
@@ -1354,6 +1572,9 @@ func modDurationCmd(timer *Timer, cycleNumStr, operation, timeStr string) error 
 	}
 
 	logDebug(fmt.Sprintf("wt mod %s %s %s", cycleNumStr, operation, timeStr))
+	if err := validateTimerConsistency(timer); err != nil {
+		return err
+	}
 	if err := save(timer); err != nil {
 		return err
 	}
@@ -1423,6 +1644,9 @@ func modPauseCmd(timer *Timer, cycleNumStr, operation, timeStr string) error {
 		}
 
 		logDebug(fmt.Sprintf("wt mod %s pause %s %s", cycleNumStr, operation, timeStr))
+		if err := validateTimerConsistency(timer); err != nil {
+			return err
+		}
 		if err := save(timer); err != nil {
 			return err
 		}
@@ -1457,6 +1681,9 @@ func modPauseCmd(timer *Timer, cycleNumStr, operation, timeStr string) error {
 		entry.PausedMinutes = newPaused
 
 		logDebug(fmt.Sprintf("wt mod %s pause %s %s", cycleNumStr, operation, timeStr))
+		if err := validateTimerConsistency(timer); err != nil {
+			return err
+		}
 		if err := save(timer); err != nil {
 			return err
 		}
@@ -1561,6 +1788,9 @@ func modDropCmd(timer *Timer, cycleNumStr string) error {
 	}
 
 	logDebug(fmt.Sprintf("wt mod %s drop", cycleNumStr))
+	if err := validateTimerConsistency(timer); err != nil {
+		return err
+	}
 	if err := save(timer); err != nil {
 		return err
 	}

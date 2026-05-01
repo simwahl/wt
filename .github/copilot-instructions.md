@@ -38,7 +38,7 @@ StatusStopped <--> StatusRunning <--> StatusPaused
 - `stopCmd()` → Stopped (calculates work = total_cycle_time - paused_time; adds work entry with minutes, paused_minutes, total_minutes; merges consecutive work entries if no break between them)
 - `pauseCmd()` → Paused (records pause start time in StartDatetimeStr)
 - `nextCmd()` → stop + add 0-min break + start
-- `mod` → Modify day start, cycle durations, or paused time (works during running/paused states). Without args, shows usage help.
+- `mod` → Modify cycle boundaries using absolute `HH:MM` (`mod <num> start`, `mod <num> end`; cycle 1 start is day start), plus duration/pause/drop edits (works during running/paused states). Without args, shows usage help.
 - `modDropCmd()` → When dropping break while running: removes both break and previous work from timeline, merges accumulated paused time
 - **Break reduction**: `start X` on subsequent cycles reduces the previous break by X minutes (cycle start is calculated from timeline)
 
