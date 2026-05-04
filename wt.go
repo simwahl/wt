@@ -345,6 +345,49 @@ func main() {
 				},
 			},
 			{
+				Name:  "game",
+				Usage: "RPG gamification — track XP, levels, and streaks",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					return gameCmd()
+				},
+				Commands: []*cli.Command{
+					{
+						Name:  "enable",
+						Usage: "Enable the game and create game state file",
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return gameEnableCmd()
+						},
+					},
+					{
+						Name:  "streak",
+						Usage: "Manage your streak",
+						Commands: []*cli.Command{
+							{
+								Name:  "reset",
+								Usage: "Reset streak to day 1 starting today",
+								Action: func(ctx context.Context, cmd *cli.Command) error {
+									return gameStreakResetCmd()
+								},
+							},
+						},
+					},
+					{
+						Name:  "consume",
+						Usage: "Consume a hobby time reward (10 minutes)",
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return gameConsumeCmd()
+						},
+					},
+					{
+						Name:  "achievements",
+						Usage: "Show all achievements with locked/unlocked status",
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return gameAchievementsCmd()
+						},
+					},
+				},
+			},
+			{
 				Name:  "debug",
 				Usage: "Prints debug info",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
@@ -1926,6 +1969,7 @@ func resetCmd(msg string) error {
 
 		oldMode = oldTimer.Mode
 		saveDailyReport(oldTimer)
+		updateGameOnReset(oldTimer)
 
 		dailyReportPath, _ := dailyReportFilePath()
 		if data, err := os.ReadFile(dailyReportPath); err == nil {
