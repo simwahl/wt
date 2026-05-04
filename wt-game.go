@@ -65,6 +65,16 @@ var allAchievements = []AchievementDef{
 	{ID: "hours_1000", Label: "1000h Worked", HoursNeeded: 1000},
 }
 
+// ConsumableDef defines a type of consumable reward earned at a streak interval.
+type ConsumableDef struct {
+	Label       string // display name shown when consuming / in overview
+	StreakEvery int    // earn one every N streak days (e.g. 5 = day 5, 10, 15...)
+}
+
+var allConsumables = []ConsumableDef{
+	{Label: "10min Hobby Time", StreakEvery: 5},
+}
+
 // streakMilestones are the named streak goal checkpoints.
 var streakMilestones = []int{3, 7, 14, 20, 30, 40, 50, 60, 75, 100}
 
@@ -236,12 +246,29 @@ func totalXPFromGame(game *GameState, timer *Timer) float64 {
 	return total
 }
 
-// computeAwardedConsumables counts hobby-time consumables earned in the current streak
-// (one per 5th-day milestone recorded in the work log since streak_reset_date).
+// streakResetDateStr returns the date portion ("2006-01-02") of the streak reset,
+// preferring StreakResetDatetime over the legacy StreakResetDate field.
+func streakResetDateStr(game *GameState) string {
+	if game.StreakResetDatetime != "" {
+		return game.StreakResetDatetime[:10] // first 10 chars are the date
+	}
+	return game.StreakResetDate
+}
+
+// computeAwardedConsumables counts consumables earned since the streak reset,
+// based on allConsumables[0].StreakEvery milestone days in the work log.
 func computeAwardedConsumables(game *GameState) int {
+	if len(allConsumables) == 0 {
+		return 0
+	}
+	every := allConsumables[0].StreakEvery
+	if every <= 0 {
+		return 0
+	}
+	resetDate := streakResetDateStr(game)
 	awarded := 0
 	for _, entry := range game.WorkLog {
-		if entry.Date >= game.StreakResetDate && entry.StreakDay > 0 && entry.StreakDay%5 == 0 {
+		if entry.Date >= resetDate && entry.StreakDay > 0 && entry.StreakDay%every == 0 {
 			awarded++
 		}
 	}
@@ -452,8 +479,8 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 		colorBold+colorMagenta, streakStr, colorReset,
 		colorBold+colorGreen, multiplier, colorReset))
 	streakBar := renderBar(streakBarFilled, streakBarTotal, barWidth)
-	sb.WriteString(fmt.Sprintf("  %s  %s  %s→ next milestone: %d days%s\n",
-		streakBar, streakStr, colorDim, nextGoal, colorReset))
+	sb.WriteString(fmt.Sprintf("  %s  %snext milestone: %d days%s\n",
+		streakBar, colorDim, nextGoal, colorReset))
 
 	// Stats
 	sb.WriteString("\n")
@@ -471,8 +498,8 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 	// Consumables
 	if available > 0 {
 		sb.WriteString("\n")
-		sb.WriteString(fmt.Sprintf("  %sHobby Time 10min  ×%d available%s   [wt game consume]\n",
-			colorBold+colorYellow, available, colorReset))
+		sb.WriteString(fmt.Sprintf("  %s%s  ×%d available%s   [wt game consume]\n",
+			colorBold+colorYellow, allConsumables[0].Label, available, colorReset))
 	}
 
 	// New achievement unlocks (shown once, then cleared)
@@ -484,6 +511,7 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 		}
 	}
 
+	sb.WriteString("\n")
 	return sb.String()
 }
 
@@ -551,8 +579,8 @@ func gameStreakResetCmd() error {
 	return nil
 }
 
-// gameConsumeCmd consumes one hobby time reward.
-func gameConsumeCmd() error {
+// gameConsumeCmd lists available consumables, or consumes one by 1-based number.
+func gameConsumeCmd(arg string) error {
 	if !isGameEnabled() {
 		fmt.Println("Game not enabled. Run 'wt game enable' to get started.")
 		return nil
@@ -561,19 +589,83 @@ func gameConsumeCmd() error {
 	if err != nil {
 		return err
 	}
-	awarded := computeAwardedConsumables(game)
-	available := awarded - game.ConsumedCount
-	if available <= 0 {
-		fmt.Println("No hobby time available. Keep your streak going!")
+
+	// Build per-consumable available counts (only one type today, keyed by index)
+	type consumableStatus struct {
+		def       ConsumableDef
+		awarded   int
+		available int
+	}
+	resetDate := streakResetDateStr(game)
+	statuses := make([]consumableStatus, len(allConsumables))
+	for i, c := range allConsumables {
+		// Re-use computeAwardedConsumables logic inline for each type
+		awarded := 0
+		for _, entry := range game.WorkLog {
+			if c.StreakEvery > 0 && entry.Date >= resetDate && entry.StreakDay > 0 && entry.StreakDay%c.StreakEvery == 0 {
+				awarded++
+			}
+		}
+		// consumed count: use ConsumedCount for index 0 (backward compat)
+		consumed := 0
+		if i == 0 {
+			consumed = game.ConsumedCount
+		}
+		available := awarded - consumed
+		if available < 0 {
+			available = 0
+		}
+		statuses[i] = consumableStatus{def: c, awarded: awarded, available: available}
+	}
+
+	// If an index arg was given, consume that item
+	if arg != "" {
+		idx := 0
+		if _, err := fmt.Sscanf(arg, "%d", &idx); err != nil || idx < 1 || idx > len(allConsumables) {
+			return fmt.Errorf("invalid consumable number %q — use 'wt game consume' to see the list", arg)
+		}
+		idx-- // convert to 0-based
+		if statuses[idx].available <= 0 {
+			fmt.Printf("No %s available.\n", statuses[idx].def.Label)
+			return nil
+		}
+		if idx == 0 {
+			game.ConsumedCount++
+		}
+		if err := saveGame(game); err != nil {
+			return err
+		}
+		remaining := statuses[idx].available - 1
+		fmt.Printf("%s🎮 Enjoy your %s!%s  (%d remaining)\n",
+			colorBold+colorYellow, statuses[idx].def.Label, colorReset, remaining)
 		return nil
 	}
-	game.ConsumedCount++
-	if err := saveGame(game); err != nil {
-		return err
+
+	// No arg: list available consumables
+	anyAvailable := false
+	for _, s := range statuses {
+		if s.available > 0 {
+			anyAvailable = true
+			break
+		}
 	}
-	remaining := available - 1
-	fmt.Printf("%s🎮 Enjoy your 10 minutes of hobby time!%s  (%d remaining)\n",
-		colorBold+colorYellow, colorReset, remaining)
+	if !anyAvailable {
+		fmt.Println("No available consumables.")
+	} else {
+		fmt.Println(colorBold + "Available:" + colorReset)
+		for i, s := range statuses {
+			if s.available > 0 {
+				fmt.Printf("  %d. %s%s%s  ×%d\n", i+1, colorBold+colorYellow, s.def.Label, colorReset, s.available)
+			}
+		}
+		fmt.Println()
+		fmt.Printf("%sUse 'wt game consume <number>' to consume.%s\n", colorDim, colorReset)
+	}
+	fmt.Println()
+	fmt.Println(colorBold + "Earnable:" + colorReset)
+	for _, s := range statuses {
+		fmt.Printf("  %s  — every %d streak days\n", s.def.Label, s.def.StreakEvery)
+	}
 	return nil
 }
 

@@ -348,6 +348,9 @@ func main() {
 				Name:  "game",
 				Usage: "RPG gamification — track XP, levels, and streaks",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
+					if cmd.Args().Len() > 0 {
+						return fmt.Errorf("unknown game command %q — try 'wt game help'", cmd.Args().Get(0))
+					}
 					return gameCmd()
 				},
 				Commands: []*cli.Command{
@@ -372,15 +375,17 @@ func main() {
 						},
 					},
 					{
-						Name:  "consume",
-						Usage: "Consume a hobby time reward (10 minutes)",
+						Name:    "consume",
+						Aliases: []string{"c"},
+						Usage:   "List or consume an available consumable reward",
 						Action: func(ctx context.Context, cmd *cli.Command) error {
-							return gameConsumeCmd()
+							return gameConsumeCmd(cmd.Args().Get(0))
 						},
 					},
 					{
-						Name:  "achievements",
-						Usage: "Show all achievements with locked/unlocked status",
+						Name:    "achievements",
+						Aliases: []string{"a"},
+						Usage:   "Show all achievements with locked/unlocked status",
 						Action: func(ctx context.Context, cmd *cli.Command) error {
 							return gameAchievementsCmd()
 						},
