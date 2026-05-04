@@ -3,6 +3,8 @@
 TEST_DIR := /tmp/wt-test-$$$$
 
 test:
+	@echo "Running unit tests..."
+	@go test ./...
 	@echo "Building Go binary..."
 	@mkdir -p .out
 	@go build -o .out/wt wt.go wt-game.go

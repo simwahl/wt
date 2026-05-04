@@ -312,34 +312,14 @@ func checkAndUnlockAchievements(game *GameState, longestStreak float64, totalMin
 	return newlyUnlocked
 }
 
-// updateGameOnReset is called when the timer is reset/new/restarted.
-// It records the session's work in the game log and checks for new achievements.
-func updateGameOnReset(timer *Timer) error {
-	if !isGameEnabled() {
-		return nil
-	}
-	if timer.DayStart == "" {
-		return nil
-	}
-
-	game, err := loadGame()
-	if err != nil {
-		return err
-	}
-
-	sessionMins := totalWorkMinutesFromTimer(timer)
-	if sessionMins == 0 {
-		return nil
-	}
-
-	dayStart, err := parseTime(timer.DayStart)
-	if err != nil {
-		return err
-	}
+// applySessionToGame records sessionMins worked on dayStart into game,
+// updates the longest streak, checks achievements, and returns any newly
+// unlocked achievement IDs. It does not perform any I/O.
+func applySessionToGame(game *GameState, sessionMins int, dayStart time.Time) []string {
 	dateStr := dayStart.Format("2006-01-02")
 	streakDay := streakDays(game, dayStart)
-	streakHours := streakHoursElapsed(game, dayStart)
-	streakDecimal := float64(streakDay) + float64(streakHours)/24.0
+	streakHoursVal := streakHoursElapsed(game, dayStart)
+	streakDecimal := float64(streakDay) + float64(streakHoursVal)/24.0
 
 	// Upsert work log entry for this date
 	found := false
@@ -376,7 +356,35 @@ func updateGameOnReset(timer *Timer) error {
 		game.Achievements = append(game.Achievements, newAchs...)
 		game.NewAchievements = append(game.NewAchievements, newAchs...)
 	}
+	return newAchs
+}
 
+// updateGameOnReset is called when the timer is reset/new/restarted.
+// It records the session's work in the game log and checks for new achievements.
+func updateGameOnReset(timer *Timer) error {
+	if !isGameEnabled() {
+		return nil
+	}
+	if timer.DayStart == "" {
+		return nil
+	}
+
+	game, err := loadGame()
+	if err != nil {
+		return err
+	}
+
+	sessionMins := totalWorkMinutesFromTimer(timer)
+	if sessionMins == 0 {
+		return nil
+	}
+
+	dayStart, err := parseTime(timer.DayStart)
+	if err != nil {
+		return err
+	}
+
+	applySessionToGame(game, sessionMins, dayStart)
 	return saveGame(game)
 }
 
