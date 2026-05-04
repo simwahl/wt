@@ -534,6 +534,17 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 	}
 	sessionXP := float64(sessionMins) * multiplier
 
+	// Today's total work (current session + any prior sessions already committed to log)
+	const fullDayMins = 330 // 5h 30m
+	todayDate := today.Format("2006-01-02")
+	todayMins := sessionMins
+	for _, entry := range game.WorkLog {
+		if entry.Date == todayDate {
+			todayMins += entry.Minutes
+			break
+		}
+	}
+
 	// Total all-time minutes (log + current session)
 	totalAllTimeMins := sessionMins
 	for _, entry := range game.WorkLog {
@@ -549,33 +560,31 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 	// Header
 	sb.WriteString(colorBold + "=== Work Timer RPG ===" + colorReset + "\n")
 
-	// Level & XP
+	// Level (one line, no bar)
 	sb.WriteString("\n")
-	sb.WriteString(fmt.Sprintf("  %sLVL %d%s\n", colorBold+colorYellow, level, colorReset))
-	sb.WriteString("  XP\n")
-	xpBar := renderBar(int(xpInLevel), xpForNext, barWidth)
-	xpRemaining := float64(xpForNext) - xpInLevel
-	minsRemaining := int(xpRemaining/multiplier + 0.5)
-	sb.WriteString(fmt.Sprintf("  %s  %s%.0f%s / %d xp  %s%s remaining (×%.2f)%s\n", xpBar, colorCyan, xpInLevel, colorReset, xpForNext, colorDim, minutesToDayHourMinuteStr(minsRemaining), multiplier, colorReset))
+	sb.WriteString(fmt.Sprintf("  %sLVL %d%s   %.0f / %d xp\n",
+		colorBold+colorYellow, level, colorReset,
+		xpInLevel, xpForNext))
 
 	// Streak
 	sb.WriteString("\n")
-	sb.WriteString(fmt.Sprintf("  Streak: %s%s%s   %s×%.2f XP%s\n",
+	sb.WriteString(fmt.Sprintf("  %sStreak: %s%s   %s×%.2f XP%s\n",
 		colorBold+colorMagenta, streakStr, colorReset,
 		colorBold+colorGreen, multiplier, colorReset))
 	streakBar := renderBar(streakBarFilled, streakBarTotal, barWidth)
 	sb.WriteString(fmt.Sprintf("  %s  %snext milestone: %d days%s\n",
 		streakBar, colorDim, nextGoal, colorReset))
-
-	// Stats
 	sb.WriteString("\n")
 	sb.WriteString(fmt.Sprintf("  %sBest streak: %.1f days%s\n", colorDim, game.LongestStreak, colorReset))
-	sb.WriteString(fmt.Sprintf("  %sTotal worked: %s%s\n", colorDim, minutesToDayHourMinuteStr(totalAllTimeMins), colorReset))
 
-	// Today's session
+	// Today's work towards full day
+	sb.WriteString("\n")
+	sb.WriteString("  Today\n")
+	todayBar := renderBar(todayMins, fullDayMins, barWidth)
+	sb.WriteString(fmt.Sprintf("  %s  %s / 5h 30m\n", todayBar, minutesToDayHourMinuteStr(todayMins)))
 	if sessionMins > 0 {
 		sb.WriteString("\n")
-		sb.WriteString(fmt.Sprintf("  Today   %s+%.0f xp%s  (%s × %.2fx)\n",
+		sb.WriteString(fmt.Sprintf("   %s+%.0f xp%s  (%s × %.2fx)\n",
 			colorBold+colorGreen, sessionXP, colorReset,
 			minutesToHourMinuteStr(sessionMins), multiplier))
 	}
