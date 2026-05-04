@@ -383,6 +383,13 @@ func main() {
 						},
 					},
 					{
+						Name:  "saved",
+						Usage: "Record a willpower save — resisted the urge to do something else",
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return gameSavedCmd()
+						},
+					},
+					{
 						Name:    "achievements",
 						Aliases: []string{"a"},
 						Usage:   "Show all achievements with locked/unlocked status",

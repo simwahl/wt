@@ -42,6 +42,7 @@ type GameState struct {
 	Achievements    []string              `json:"achievements"`
 	NewAchievements []string              `json:"new_achievements"` // shown once, then cleared
 	Consumables     []GameConsumableEntry `json:"consumables"`
+	Saves           []string              `json:"saves"`          // append-only datetimes of willpower saves
 	LongestStreak   float64               `json:"longest_streak"` // best ever streak in decimal days
 	// Legacy fields — read for migration only, not written (omitempty)
 	StreakResetDate     string `json:"streak_reset_date,omitempty"`
@@ -577,6 +578,22 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 	sb.WriteString("\n")
 	sb.WriteString(fmt.Sprintf("  %sBest streak: %.1f days%s\n", colorDim, game.LongestStreak, colorReset))
 
+	// Count saves since last streak reset
+	lastReset := ""
+	if len(game.StreakResets) > 0 {
+		lastReset = game.StreakResets[len(game.StreakResets)-1]
+	}
+	savesThisStreak := 0
+	for _, s := range game.Saves {
+		if s >= lastReset {
+			savesThisStreak++
+		}
+	}
+	if savesThisStreak > 0 {
+		sb.WriteString(fmt.Sprintf("  %s🛡️ %d save%s this streak%s\n",
+			colorBold+colorGreen, savesThisStreak, pluralS(savesThisStreak), colorReset))
+	}
+
 	// Today's work towards full day
 	sb.WriteString("\n")
 	sb.WriteString("  Today\n")
@@ -588,7 +605,6 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 			colorBold+colorGreen, sessionXP, colorReset,
 			minutesToHourMinuteStr(sessionMins), multiplier))
 	}
-
 	// Consumables
 	if available > 0 {
 		sb.WriteString("\n")
@@ -745,6 +761,44 @@ func gameConsumeCmd(arg string) error {
 	for _, s := range statuses {
 		fmt.Printf("  %s  — every %d streak days\n", s.def.Label, s.def.StreakEvery)
 	}
+	return nil
+}
+
+// pluralS returns "s" if n != 1, otherwise "".
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
+// gameSavedCmd records a willpower save and reports today's count.
+func gameSavedCmd() error {
+	if !isGameEnabled() {
+		fmt.Println("Game not enabled. Run 'wt game enable' to get started.")
+		return nil
+	}
+	game, err := loadGame()
+	if err != nil {
+		return err
+	}
+	now := getCurrentTime()
+	game.Saves = append(game.Saves, now.Format(DT_FORMAT))
+	if err := saveGame(game); err != nil {
+		return err
+	}
+	lastReset := ""
+	if len(game.StreakResets) > 0 {
+		lastReset = game.StreakResets[len(game.StreakResets)-1]
+	}
+	count := 0
+	for _, s := range game.Saves {
+		if s >= lastReset {
+			count++
+		}
+	}
+	fmt.Printf("%s🛡️️ Save recorded!%s  %d save%s this streak — willpower preserved.\n",
+		colorBold+colorGreen, colorReset, count, pluralS(count))
 	return nil
 }
 
