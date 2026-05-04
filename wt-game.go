@@ -23,20 +23,30 @@ const (
 
 // GameWorkLogEntry records work done on a specific day
 type GameWorkLogEntry struct {
-	Date      string `json:"date"`       // "2026-05-04"
-	Minutes   int    `json:"minutes"`    // total work minutes for the session
-	StreakDay int    `json:"streak_day"` // streak day count when logged (for XP multiplier)
+	Date      string `json:"date"`                 // "2026-05-04"
+	Minutes   int    `json:"minutes"`              // total work minutes for the session
+	StreakDay int    `json:"streak_day,omitempty"` // legacy field, present in old files only; used during migration
+}
+
+// GameConsumableEntry is one unit of a consumable reward.
+type GameConsumableEntry struct {
+	ID          string `json:"id"`           // matches ConsumableDef.ID
+	AwardedDate string `json:"awarded_date"` // "2026-01-20" — date this was earned
+	ConsumedAt  string `json:"consumed_at"`  // "2006-01-02 15:04" or "" if still available
 }
 
 // GameState holds all RPG game state
 type GameState struct {
-	StreakResetDate     string             `json:"streak_reset_date,omitempty"` // legacy: date only "2006-01-02"
-	StreakResetDatetime string             `json:"streak_reset_datetime"`       // "2006-01-02 15:04"
-	WorkLog             []GameWorkLogEntry `json:"work_log"`
-	Achievements        []string           `json:"achievements"`     // unlocked achievement IDs
-	NewAchievements     []string           `json:"new_achievements"` // shown once, then cleared
-	ConsumedCount       int                `json:"consumed_count"`   // hobby time units consumed
-	LongestStreak       float64            `json:"longest_streak"`   // best ever streak in decimal days
+	StreakResets    []string              `json:"streak_resets"` // append-only reset datetime history
+	WorkLog         []GameWorkLogEntry    `json:"work_log"`
+	Achievements    []string              `json:"achievements"`
+	NewAchievements []string              `json:"new_achievements"` // shown once, then cleared
+	Consumables     []GameConsumableEntry `json:"consumables"`
+	LongestStreak   float64               `json:"longest_streak"` // best ever streak in decimal days
+	// Legacy fields — read for migration only, not written (omitempty)
+	StreakResetDate     string `json:"streak_reset_date,omitempty"`
+	StreakResetDatetime string `json:"streak_reset_datetime,omitempty"`
+	ConsumedCount       int    `json:"consumed_count,omitempty"`
 }
 
 // AchievementDef defines a single unlockable achievement.
@@ -67,12 +77,13 @@ var allAchievements = []AchievementDef{
 
 // ConsumableDef defines a type of consumable reward earned at a streak interval.
 type ConsumableDef struct {
+	ID          string // unique identifier used in GameConsumableEntry
 	Label       string // display name shown when consuming / in overview
 	StreakEvery int    // earn one every N streak days (e.g. 5 = day 5, 10, 15...)
 }
 
 var allConsumables = []ConsumableDef{
-	{Label: "10min Hobby Time", StreakEvery: 5},
+	{ID: "hobby_10min", Label: "10min Hobby Time", StreakEvery: 3},
 }
 
 // streakMilestones are the named streak goal checkpoints.
@@ -111,11 +122,46 @@ func loadGame() (*GameState, error) {
 	if err := json.Unmarshal(data, &game); err != nil {
 		return nil, err
 	}
-	// Migrate from legacy date-only field
-	if game.StreakResetDatetime == "" && game.StreakResetDate != "" {
-		game.StreakResetDatetime = game.StreakResetDate + " 00:00"
-	}
+	migrateGameState(&game)
 	return &game, nil
+}
+
+// migrateGameState upgrades legacy fields to the current data model in-memory.
+// It is idempotent: safe to call on already-migrated state.
+func migrateGameState(game *GameState) {
+	// Migrate single reset datetime → StreakResets array
+	if len(game.StreakResets) == 0 {
+		if game.StreakResetDatetime != "" {
+			game.StreakResets = []string{game.StreakResetDatetime}
+		} else if game.StreakResetDate != "" {
+			game.StreakResets = []string{game.StreakResetDate + " 00:00"}
+		}
+		game.StreakResetDatetime = ""
+		game.StreakResetDate = ""
+	}
+	// Migrate ConsumedCount + legacy work log StreakDay entries → Consumables array
+	if len(game.Consumables) == 0 && len(allConsumables) > 0 {
+		c := allConsumables[0]
+		consumed := 0
+		for _, entry := range game.WorkLog {
+			if c.StreakEvery > 0 && entry.StreakDay > 0 && entry.StreakDay%c.StreakEvery == 0 {
+				consumedAt := ""
+				if consumed < game.ConsumedCount {
+					consumedAt = entry.Date + " 00:00"
+					consumed++
+				}
+				game.Consumables = append(game.Consumables, GameConsumableEntry{
+					ID:          c.ID,
+					AwardedDate: entry.Date,
+					ConsumedAt:  consumedAt,
+				})
+			}
+		}
+		game.ConsumedCount = 0
+	}
+	if game.Consumables == nil {
+		game.Consumables = []GameConsumableEntry{}
+	}
 }
 
 // saveGame writes game state to disk.
@@ -131,16 +177,11 @@ func saveGame(game *GameState) error {
 	return os.WriteFile(path, data, 0644)
 }
 
-// streakResetTime parses the streak reset datetime from game state.
+// streakResetTime returns the most recent streak reset time.
 func streakResetTime(game *GameState) time.Time {
-	if game.StreakResetDatetime != "" {
-		t, err := time.ParseInLocation(DT_FORMAT, game.StreakResetDatetime, time.Local)
-		if err == nil {
-			return t
-		}
-	}
-	if game.StreakResetDate != "" {
-		t, err := time.ParseInLocation("2006-01-02", game.StreakResetDate, time.Local)
+	if len(game.StreakResets) > 0 {
+		last := game.StreakResets[len(game.StreakResets)-1]
+		t, err := time.ParseInLocation(DT_FORMAT, last, time.Local)
 		if err == nil {
 			return t
 		}
@@ -168,6 +209,36 @@ func streakHoursElapsed(game *GameState, reference time.Time) int {
 		return 0
 	}
 	return int(elapsed.Hours()) % 24
+}
+
+// streakDayForDate returns the streak day count for a past date string ("2006-01-02"),
+// finding the applicable reset from the StreakResets history.
+func streakDayForDate(game *GameState, dateStr string) int {
+	// Find the latest reset whose date portion is <= dateStr
+	resetStr := ""
+	for _, r := range game.StreakResets {
+		if len(r) >= 10 && r[:10] <= dateStr {
+			resetStr = r
+		}
+	}
+	if resetStr == "" {
+		return 0
+	}
+	t, err := time.ParseInLocation(DT_FORMAT, resetStr, time.Local)
+	if err != nil {
+		return 0
+	}
+	ref, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
+	if err != nil {
+		return 0
+	}
+	resetMidnight := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
+	refMidnight := time.Date(ref.Year(), ref.Month(), ref.Day(), 0, 0, 0, 0, time.Local)
+	days := int(refMidnight.Sub(resetMidnight).Hours() / 24)
+	if days < 0 {
+		return 0
+	}
+	return days
 }
 
 // minutesToDayHourMinuteStr formats minutes as "Xd Yh Zm" (omits days if 0, omits minutes if 0).
@@ -233,7 +304,8 @@ func totalWorkMinutesFromTimer(timer *Timer) int {
 func totalXPFromGame(game *GameState, timer *Timer) float64 {
 	total := 0.0
 	for _, entry := range game.WorkLog {
-		total += float64(entry.Minutes) * streakMultiplier(entry.StreakDay)
+		day := streakDayForDate(game, entry.Date)
+		total += float64(entry.Minutes) * streakMultiplier(day)
 	}
 	if timer != nil && timer.DayStart != "" {
 		dayStart, err := parseTime(timer.DayStart)
@@ -246,33 +318,15 @@ func totalXPFromGame(game *GameState, timer *Timer) float64 {
 	return total
 }
 
-// streakResetDateStr returns the date portion ("2006-01-02") of the streak reset,
-// preferring StreakResetDatetime over the legacy StreakResetDate field.
-func streakResetDateStr(game *GameState) string {
-	if game.StreakResetDatetime != "" {
-		return game.StreakResetDatetime[:10] // first 10 chars are the date
-	}
-	return game.StreakResetDate
-}
-
-// computeAwardedConsumables counts consumables earned since the streak reset,
-// based on allConsumables[0].StreakEvery milestone days in the work log.
-func computeAwardedConsumables(game *GameState) int {
-	if len(allConsumables) == 0 {
-		return 0
-	}
-	every := allConsumables[0].StreakEvery
-	if every <= 0 {
-		return 0
-	}
-	resetDate := streakResetDateStr(game)
-	awarded := 0
-	for _, entry := range game.WorkLog {
-		if entry.Date >= resetDate && entry.StreakDay > 0 && entry.StreakDay%every == 0 {
-			awarded++
+// availableConsumablesCount returns the number of unconsumed consumables with the given ID.
+func availableConsumablesCount(game *GameState, id string) int {
+	count := 0
+	for _, c := range game.Consumables {
+		if c.ID == id && c.ConsumedAt == "" {
+			count++
 		}
 	}
-	return awarded
+	return count
 }
 
 // hasAchievement returns true if the achievement ID is already unlocked.
@@ -313,6 +367,7 @@ func checkAndUnlockAchievements(game *GameState, longestStreak float64, totalMin
 }
 
 // applySessionToGame records sessionMins worked on dayStart into game,
+// awards consumables if this is the first session on a milestone streak day,
 // updates the longest streak, checks achievements, and returns any newly
 // unlocked achievement IDs. It does not perform any I/O.
 func applySessionToGame(game *GameState, sessionMins int, dayStart time.Time) []string {
@@ -321,22 +376,43 @@ func applySessionToGame(game *GameState, sessionMins int, dayStart time.Time) []
 	streakHoursVal := streakHoursElapsed(game, dayStart)
 	streakDecimal := float64(streakDay) + float64(streakHoursVal)/24.0
 
-	// Upsert work log entry for this date
+	// Upsert work log entry for this date (streak day is derived from reset history, not stored)
 	found := false
 	for i, entry := range game.WorkLog {
 		if entry.Date == dateStr {
 			game.WorkLog[i].Minutes += sessionMins
-			game.WorkLog[i].StreakDay = streakDay
+			game.WorkLog[i].StreakDay = 0 // clear legacy field on upsert
 			found = true
 			break
 		}
 	}
 	if !found {
 		game.WorkLog = append(game.WorkLog, GameWorkLogEntry{
-			Date:      dateStr,
-			Minutes:   sessionMins,
-			StreakDay: streakDay,
+			Date:    dateStr,
+			Minutes: sessionMins,
 		})
+	}
+
+	// Award consumables on the first session of a milestone streak day
+	if streakDay > 0 {
+		for _, c := range allConsumables {
+			if c.StreakEvery > 0 && streakDay%c.StreakEvery == 0 {
+				alreadyAwarded := false
+				for _, existing := range game.Consumables {
+					if existing.ID == c.ID && existing.AwardedDate == dateStr {
+						alreadyAwarded = true
+						break
+					}
+				}
+				if !alreadyAwarded {
+					game.Consumables = append(game.Consumables, GameConsumableEntry{
+						ID:          c.ID,
+						AwardedDate: dateStr,
+						ConsumedAt:  "",
+					})
+				}
+			}
+		}
 	}
 
 	// Update longest streak
@@ -465,10 +541,9 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 	}
 
 	// Consumables
-	awarded := computeAwardedConsumables(game)
-	available := awarded - game.ConsumedCount
-	if available < 0 {
-		available = 0
+	available := 0
+	if len(allConsumables) > 0 {
+		available = availableConsumablesCount(game, allConsumables[0].ID)
 	}
 
 	// Header
@@ -479,7 +554,9 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 	sb.WriteString(fmt.Sprintf("  %sLVL %d%s\n", colorBold+colorYellow, level, colorReset))
 	sb.WriteString("  XP\n")
 	xpBar := renderBar(int(xpInLevel), xpForNext, barWidth)
-	sb.WriteString(fmt.Sprintf("  %s  %s%.0f%s / %d xp\n", xpBar, colorCyan, xpInLevel, colorReset, xpForNext))
+	xpRemaining := float64(xpForNext) - xpInLevel
+	minsRemaining := int(xpRemaining/multiplier + 0.5)
+	sb.WriteString(fmt.Sprintf("  %s  %s%.0f%s / %d xp  %s%s remaining (×%.2f)%s\n", xpBar, colorCyan, xpInLevel, colorReset, xpForNext, colorDim, minutesToDayHourMinuteStr(minsRemaining), multiplier, colorReset))
 
 	// Streak
 	sb.WriteString("\n")
@@ -551,12 +628,12 @@ func gameEnableCmd() error {
 	}
 	now := getCurrentTime().Format(DT_FORMAT)
 	game := &GameState{
-		StreakResetDatetime: now,
-		WorkLog:             []GameWorkLogEntry{},
-		Achievements:        []string{},
-		NewAchievements:     []string{},
-		ConsumedCount:       0,
-		LongestStreak:       0,
+		StreakResets:    []string{now},
+		WorkLog:         []GameWorkLogEntry{},
+		Achievements:    []string{},
+		NewAchievements: []string{},
+		Consumables:     []GameConsumableEntry{},
+		LongestStreak:   0,
 	}
 	if err := saveGame(game); err != nil {
 		return err
@@ -579,7 +656,7 @@ func gameStreakResetCmd() error {
 		return err
 	}
 	now := getCurrentTime().Format(DT_FORMAT)
-	game.StreakResetDatetime = now
+	game.StreakResets = append(game.StreakResets, now)
 	if err := saveGame(game); err != nil {
 		return err
 	}
@@ -598,32 +675,13 @@ func gameConsumeCmd(arg string) error {
 		return err
 	}
 
-	// Build per-consumable available counts (only one type today, keyed by index)
 	type consumableStatus struct {
 		def       ConsumableDef
-		awarded   int
 		available int
 	}
-	resetDate := streakResetDateStr(game)
 	statuses := make([]consumableStatus, len(allConsumables))
 	for i, c := range allConsumables {
-		// Re-use computeAwardedConsumables logic inline for each type
-		awarded := 0
-		for _, entry := range game.WorkLog {
-			if c.StreakEvery > 0 && entry.Date >= resetDate && entry.StreakDay > 0 && entry.StreakDay%c.StreakEvery == 0 {
-				awarded++
-			}
-		}
-		// consumed count: use ConsumedCount for index 0 (backward compat)
-		consumed := 0
-		if i == 0 {
-			consumed = game.ConsumedCount
-		}
-		available := awarded - consumed
-		if available < 0 {
-			available = 0
-		}
-		statuses[i] = consumableStatus{def: c, awarded: awarded, available: available}
+		statuses[i] = consumableStatus{def: c, available: availableConsumablesCount(game, c.ID)}
 	}
 
 	// If an index arg was given, consume that item
@@ -637,8 +695,12 @@ func gameConsumeCmd(arg string) error {
 			fmt.Printf("No %s available.\n", statuses[idx].def.Label)
 			return nil
 		}
-		if idx == 0 {
-			game.ConsumedCount++
+		now := getCurrentTime().Format(DT_FORMAT)
+		for j, cons := range game.Consumables {
+			if cons.ID == allConsumables[idx].ID && cons.ConsumedAt == "" {
+				game.Consumables[j].ConsumedAt = now
+				break
+			}
 		}
 		if err := saveGame(game); err != nil {
 			return err

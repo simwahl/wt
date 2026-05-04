@@ -18,10 +18,11 @@ func mustTime(s string) time.Time {
 // newGame returns a minimal GameState with the given streak reset datetime.
 func newGame(resetDatetime string) *GameState {
 	return &GameState{
-		StreakResetDatetime: resetDatetime,
-		WorkLog:             []GameWorkLogEntry{},
-		Achievements:        []string{},
-		NewAchievements:     []string{},
+		StreakResets:    []string{resetDatetime},
+		WorkLog:         []GameWorkLogEntry{},
+		Achievements:    []string{},
+		NewAchievements: []string{},
+		Consumables:     []GameConsumableEntry{},
 	}
 }
 
@@ -201,6 +202,35 @@ func TestPrevStreakGoal(t *testing.T) {
 }
 
 // ----------------------------------------------------------------------------
+// streakDayForDate
+// ----------------------------------------------------------------------------
+
+func TestStreakDayForDate(t *testing.T) {
+	cases := []struct {
+		name   string
+		resets []string
+		date   string
+		want   int
+	}{
+		{"same day as reset", []string{"2026-01-20 09:00"}, "2026-01-20", 0},
+		{"5 days after reset", []string{"2026-01-15 09:00"}, "2026-01-20", 5},
+		{"date before all resets", []string{"2026-01-20 09:00"}, "2026-01-15", 0},
+		{"uses most recent reset before date", []string{"2026-01-01 09:00", "2026-01-15 09:00"}, "2026-01-20", 5},
+		{"earlier reset ignored when later reset applies", []string{"2026-01-01 09:00", "2026-01-18 09:00"}, "2026-01-20", 2},
+		{"no resets", []string{}, "2026-01-20", 0},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			game := &GameState{StreakResets: c.resets}
+			got := streakDayForDate(game, c.date)
+			if got != c.want {
+				t.Errorf("streakDayForDate(%v, %q) = %d, want %d", c.resets, c.date, got, c.want)
+			}
+		})
+	}
+}
+
+// ----------------------------------------------------------------------------
 // checkAndUnlockAchievements
 // ----------------------------------------------------------------------------
 
@@ -248,55 +278,45 @@ func TestCheckAndUnlockAchievements(t *testing.T) {
 }
 
 // ----------------------------------------------------------------------------
-// computeAwardedConsumables
+// availableConsumablesCount
 // ----------------------------------------------------------------------------
 
-func TestComputeAwardedConsumables(t *testing.T) {
-	t.Run("no work log entries", func(t *testing.T) {
+func TestAvailableConsumablesCount(t *testing.T) {
+	t.Run("no consumables", func(t *testing.T) {
 		game := newGame("2026-01-15 09:00")
-		if got := computeAwardedConsumables(game); got != 0 {
+		if got := availableConsumablesCount(game, "hobby_10min"); got != 0 {
 			t.Errorf("got %d, want 0", got)
 		}
 	})
 
-	t.Run("streak day 3 earns no consumable", func(t *testing.T) {
+	t.Run("one awarded, not consumed", func(t *testing.T) {
 		game := newGame("2026-01-15 09:00")
-		game.WorkLog = []GameWorkLogEntry{
-			{Date: "2026-01-18", Minutes: 60, StreakDay: 3},
+		game.Consumables = []GameConsumableEntry{
+			{ID: "hobby_10min", AwardedDate: "2026-01-20", ConsumedAt: ""},
 		}
-		if got := computeAwardedConsumables(game); got != 0 {
-			t.Errorf("got %d, want 0", got)
-		}
-	})
-
-	t.Run("streak day 5 earns 1 consumable", func(t *testing.T) {
-		game := newGame("2026-01-15 09:00")
-		game.WorkLog = []GameWorkLogEntry{
-			{Date: "2026-01-20", Minutes: 60, StreakDay: 5},
-		}
-		if got := computeAwardedConsumables(game); got != 1 {
+		if got := availableConsumablesCount(game, "hobby_10min"); got != 1 {
 			t.Errorf("got %d, want 1", got)
 		}
 	})
 
-	t.Run("streak day 10 earns 2 consumables (days 5 and 10 both hit)", func(t *testing.T) {
+	t.Run("two awarded, one consumed", func(t *testing.T) {
 		game := newGame("2026-01-10 09:00")
-		game.WorkLog = []GameWorkLogEntry{
-			{Date: "2026-01-15", Minutes: 60, StreakDay: 5},
-			{Date: "2026-01-20", Minutes: 60, StreakDay: 10},
+		game.Consumables = []GameConsumableEntry{
+			{ID: "hobby_10min", AwardedDate: "2026-01-15", ConsumedAt: "2026-01-16 10:00"},
+			{ID: "hobby_10min", AwardedDate: "2026-01-20", ConsumedAt: ""},
 		}
-		if got := computeAwardedConsumables(game); got != 2 {
-			t.Errorf("got %d, want 2", got)
+		if got := availableConsumablesCount(game, "hobby_10min"); got != 1 {
+			t.Errorf("got %d, want 1", got)
 		}
 	})
 
-	t.Run("entries before streak reset date are ignored", func(t *testing.T) {
-		game := newGame("2026-01-20 09:00") // reset on Jan 20
-		game.WorkLog = []GameWorkLogEntry{
-			{Date: "2026-01-15", Minutes: 60, StreakDay: 5}, // before reset
+	t.Run("different ID not counted", func(t *testing.T) {
+		game := newGame("2026-01-15 09:00")
+		game.Consumables = []GameConsumableEntry{
+			{ID: "other_type", AwardedDate: "2026-01-20", ConsumedAt: ""},
 		}
-		if got := computeAwardedConsumables(game); got != 0 {
-			t.Errorf("got %d, want 0 (entry predates streak reset)", got)
+		if got := availableConsumablesCount(game, "hobby_10min"); got != 0 {
+			t.Errorf("got %d, want 0", got)
 		}
 	})
 }
@@ -317,7 +337,7 @@ func TestTotalXPFromGame(t *testing.T) {
 	t.Run("single entry at streak day 0 (1.0x)", func(t *testing.T) {
 		game := newGame("2026-01-20 09:00")
 		game.WorkLog = []GameWorkLogEntry{
-			{Date: "2026-01-20", Minutes: 60, StreakDay: 0},
+			{Date: "2026-01-20", Minutes: 60}, // reset day → day 0
 		}
 		got := totalXPFromGame(game, nil)
 		want := 60.0 * 1.0
@@ -327,9 +347,9 @@ func TestTotalXPFromGame(t *testing.T) {
 	})
 
 	t.Run("single entry at streak day 5 (1.05x)", func(t *testing.T) {
-		game := newGame("2026-01-15 09:00")
+		game := newGame("2026-01-15 09:00") // reset Jan 15 → Jan 20 is day 5
 		game.WorkLog = []GameWorkLogEntry{
-			{Date: "2026-01-20", Minutes: 60, StreakDay: 5},
+			{Date: "2026-01-20", Minutes: 60},
 		}
 		got := totalXPFromGame(game, nil)
 		want := 60.0 * 1.05
@@ -339,10 +359,10 @@ func TestTotalXPFromGame(t *testing.T) {
 	})
 
 	t.Run("multiple entries sum correctly", func(t *testing.T) {
-		game := newGame("2026-01-15 09:00")
+		game := newGame("2026-01-15 09:00") // Jan 20 = day 5, Jan 21 = day 6
 		game.WorkLog = []GameWorkLogEntry{
-			{Date: "2026-01-20", Minutes: 60, StreakDay: 5}, // 60 * 1.05 = 63
-			{Date: "2026-01-21", Minutes: 30, StreakDay: 6}, // 30 * 1.06 = 31.8
+			{Date: "2026-01-20", Minutes: 60}, // 60 * 1.05 = 63
+			{Date: "2026-01-21", Minutes: 30}, // 30 * 1.06 = 31.8
 		}
 		got := totalXPFromGame(game, nil)
 		want := 60.0*1.05 + 30.0*1.06
@@ -372,15 +392,15 @@ func TestApplySessionToGame(t *testing.T) {
 		if entry.Minutes != 60 {
 			t.Errorf("minutes = %d, want 60", entry.Minutes)
 		}
-		if entry.StreakDay != 5 {
-			t.Errorf("streak_day = %d, want 5", entry.StreakDay)
+		if entry.StreakDay != 0 {
+			t.Errorf("streak_day should not be set, got %d", entry.StreakDay)
 		}
 	})
 
 	t.Run("upserts existing entry for same date", func(t *testing.T) {
 		game := newGame("2026-01-15 09:00")
 		game.WorkLog = []GameWorkLogEntry{
-			{Date: "2026-01-20", Minutes: 40, StreakDay: 5},
+			{Date: "2026-01-20", Minutes: 40},
 		}
 		dayStart := mustTime("2026-01-20 14:00")
 		applySessionToGame(game, 30, dayStart)
@@ -443,13 +463,44 @@ func TestApplySessionToGame(t *testing.T) {
 		}
 	})
 
+	t.Run("consumable awarded on first session of a milestone streak day", func(t *testing.T) {
+		game := newGame("2026-01-17 09:00") // Jan 20 = day 3 (StreakEvery=3)
+		applySessionToGame(game, 60, mustTime("2026-01-20 09:00"))
+
+		if got := availableConsumablesCount(game, "hobby_10min"); got != 1 {
+			t.Errorf("available consumables = %d, want 1", got)
+		}
+		if game.Consumables[0].AwardedDate != "2026-01-20" {
+			t.Errorf("AwardedDate = %q, want 2026-01-20", game.Consumables[0].AwardedDate)
+		}
+	})
+
+	t.Run("consumable not awarded on non-milestone streak day", func(t *testing.T) {
+		game := newGame("2026-01-18 09:00") // Jan 20 = day 2 (not a multiple of 3)
+		applySessionToGame(game, 60, mustTime("2026-01-20 09:00"))
+
+		if got := availableConsumablesCount(game, "hobby_10min"); got != 0 {
+			t.Errorf("available consumables = %d, want 0", got)
+		}
+	})
+
+	t.Run("consumable awarded only once per day (second session same day)", func(t *testing.T) {
+		game := newGame("2026-01-17 09:00") // Jan 20 = day 3 (StreakEvery=3)
+		applySessionToGame(game, 30, mustTime("2026-01-20 09:00"))
+		applySessionToGame(game, 30, mustTime("2026-01-20 14:00")) // second session same day
+
+		if got := availableConsumablesCount(game, "hobby_10min"); got != 1 {
+			t.Errorf("available consumables = %d, want 1 (no double award)", got)
+		}
+	})
+
 	t.Run("hours achievement unlocked when total work crosses threshold", func(t *testing.T) {
 		game := newGame("2026-01-01 09:00")
 		// 49h already logged
 		game.WorkLog = []GameWorkLogEntry{
-			{Date: "2026-01-10", Minutes: 49 * 60, StreakDay: 9},
+			{Date: "2026-01-10", Minutes: 49 * 60},
 		}
-		// Add 60 more min → crosses 50h
+		// Add 61 more min → crosses 50h
 		newAchs := applySessionToGame(game, 61, mustTime("2026-01-11 09:00"))
 		if !contains(newAchs, "hours_50") {
 			t.Errorf("got %v, want hours_50", newAchs)
