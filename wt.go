@@ -167,16 +167,20 @@ func main() {
 			{
 				Name:        "pause",
 				Usage:       "Pauses currently running timer",
-				ArgsUsage:   "[time]",
-				Description: "Optionally provide time in HHMM format to add pause time",
+				ArgsUsage:   "[add|sub <time>] [time]",
+				Description: "Pauses the timer. Optionally provide time in HHMM format to add pause time.\n   Use 'add <time>' or 'sub <time>' to adjust current cycle pause time without pausing.",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					timer, err := load()
 					if err != nil {
 						return err
 					}
+					args := cmd.Args().Slice()
+					if len(args) == 2 && (args[0] == "add" || args[0] == "sub") {
+						return pauseModCurrentCmd(timer, args[0], args[1])
+					}
 					pauseTime := ""
-					if cmd.Args().Len() > 0 {
-						pauseTime = cmd.Args().Get(0)
+					if len(args) > 0 {
+						pauseTime = args[0]
 					}
 					return pauseCmd(timer, pauseTime)
 				},
@@ -345,10 +349,111 @@ func main() {
 				},
 			},
 			{
+				Name:  "game",
+				Usage: "RPG gamification — track XP, levels, and streaks",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					if cmd.Args().Len() > 0 {
+						return fmt.Errorf("unknown game command %q — try 'wt game help'", cmd.Args().Get(0))
+					}
+					return gameCmd()
+				},
+				Commands: []*cli.Command{
+					{
+						Name:  "enable",
+						Usage: "Enable the game and create game state file",
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return gameEnableCmd()
+						},
+					},
+					{
+						Name:  "streak",
+						Usage: "Manage your streak",
+						Commands: []*cli.Command{
+							{
+								Name:  "reset",
+								Usage: "Reset streak to day 1 starting today",
+								Action: func(ctx context.Context, cmd *cli.Command) error {
+									return gameStreakResetCmd()
+								},
+							},
+						},
+					},
+					{
+						Name:    "consume",
+						Aliases: []string{"c"},
+						Usage:   "List or consume an available consumable reward",
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return gameConsumeCmd(cmd.Args().Get(0))
+						},
+					},
+					{
+						Name:  "saved",
+						Usage: "Record a willpower save — resisted the urge to do something else",
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return gameSavedCmd()
+						},
+					},
+					{
+						Name:    "achievements",
+						Aliases: []string{"a"},
+						Usage:   "Show all achievements with locked/unlocked status",
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return gameAchievementsCmd()
+						},
+					},
+				},
+			},
+			{
 				Name:  "debug",
 				Usage: "Prints debug info",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					return debugCmd()
+				},
+			},
+			{
+				Name:        "bt",
+				Usage:       "Show available break time to finish by a target time",
+				ArgsUsage:   "<HH:MM>",
+				Description: "Calculate how much break you can take and still finish work by the given clock time",
+				Flags: []cli.Flag{
+					&cli.FloatFlag{
+						Name:    "total",
+						Aliases: []string{"t"},
+						Value:   5.5,
+						Usage:   "Total work target in hours (e.g. 5.5, 6)",
+					},
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					if cmd.Args().Len() == 0 {
+						return fmt.Errorf("usage: wt bt <HH:MM>  (e.g. wt bt 16:30)")
+					}
+					totalMins := int(cmd.Float("total") * 60)
+					return breakTimeCmd(cmd.Args().Get(0), totalMins)
+				},
+			},
+			{
+				Name:      "eta",
+				Usage:     "Show ETA for a work target",
+				ArgsUsage: "[hours]",
+				Description: "Print the estimated finish time for the given work target in decimal hours (default 5.5). " +
+					"Uses the reference work day model; beyond 5h30m assumes 45 min work per hour.",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:    "break-time",
+						Aliases: []string{"b"},
+						Usage:   "Also show break time allowance to reach the ETA",
+					},
+				},
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					hours := 5.5
+					if cmd.Args().Len() > 0 {
+						var err error
+						hours, err = strconv.ParseFloat(cmd.Args().Get(0), 64)
+						if err != nil || hours <= 0 {
+							return fmt.Errorf("invalid hours %q — use a positive number like 5.5 or 6", cmd.Args().Get(0))
+						}
+					}
+					return etaCmd(hours, cmd.Bool("break-time"))
 				},
 			},
 			{
@@ -1113,10 +1218,6 @@ func pauseCmd(timer *Timer, pauseTime string) error {
 		// Validate and handle optional pause time parameter
 		additionalPause := 0
 		if pauseTime != "" {
-			// Check if user is trying to use add/sub syntax
-			if pauseTime == "add" || pauseTime == "sub" {
-				return fmt.Errorf("To modify pause time, use: wt mod <cycle> pause add/sub <minutes>")
-			}
 			if err := validateTimeString(pauseTime); err != nil {
 				return err
 			}
@@ -1167,6 +1268,75 @@ func pauseCmd(timer *Timer, pauseTime string) error {
 		return fmt.Errorf("Unhandled status: %s", timer.Status)
 	}
 
+	return nil
+}
+
+// pauseModCurrentCmd adds or subtracts pause time from the current active cycle.
+func pauseModCurrentCmd(timer *Timer, operation, timeStr string) error {
+	if timer.Status == StatusStopped {
+		return fmt.Errorf("no active cycle — timer is stopped")
+	}
+
+	if !isDigits(timeStr) {
+		return fmt.Errorf("invalid time format — use digits only (e.g. 10, 130)")
+	}
+
+	minutes, err := stringTimeToMinutes(timeStr)
+	if err != nil {
+		return err
+	}
+
+	if timer.Status == StatusPaused {
+		now := getCurrentTime()
+		pauseStart, _ := parseTime(timer.PauseStartStr)
+		currentPause := deltaMinutes(pauseStart, now)
+		totalPaused := timer.PausedMinutes + currentPause
+
+		newTotalPaused := totalPaused
+		if operation == "add" {
+			newTotalPaused += minutes
+		} else {
+			newTotalPaused -= minutes
+			if newTotalPaused < 0 {
+				return fmt.Errorf("error: paused time would be negative. Current: %s", minutesToHourMinuteStr(totalPaused))
+			}
+		}
+
+		cycleStart := timer.CurrentCycleStart()
+		elapsed := deltaMinutes(cycleStart, now)
+		if newTotalPaused > elapsed {
+			return fmt.Errorf("error: paused time cannot exceed elapsed cycle time (%s)", minutesToHourMinuteStr(elapsed))
+		}
+
+		// Rebase pause start so total paused reflects the new amount
+		timer.PausedMinutes = 0
+		timer.PauseStartStr = now.Add(-time.Duration(newTotalPaused) * time.Minute).Format(DT_FORMAT)
+	} else { // StatusRunning
+		if operation == "add" {
+			timer.PausedMinutes += minutes
+		} else {
+			newPaused := timer.PausedMinutes - minutes
+			if newPaused < 0 {
+				return fmt.Errorf("error: paused time would be negative. Current: %s", minutesToHourMinuteStr(timer.PausedMinutes))
+			}
+			timer.PausedMinutes = newPaused
+		}
+	}
+
+	logDebug(fmt.Sprintf("wt pause %s %s", operation, timeStr))
+	if err := validateTimerConsistency(timer); err != nil {
+		return err
+	}
+	syncStopDatetimeForStopped(timer)
+	if err := save(timer); err != nil {
+		return err
+	}
+
+	sign := "+"
+	if operation == "sub" {
+		sign = "-"
+	}
+	printMessageIfNotSilent(timer, fmt.Sprintf("Modified current cycle paused time by %s%s", sign, minutesToHourMinuteStr(minutes)))
 	return nil
 }
 
@@ -1926,6 +2096,7 @@ func resetCmd(msg string) error {
 
 		oldMode = oldTimer.Mode
 		saveDailyReport(oldTimer)
+		updateGameOnReset(oldTimer)
 
 		dailyReportPath, _ := dailyReportFilePath()
 		if data, err := os.ReadFile(dailyReportPath); err == nil {

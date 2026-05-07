@@ -1,3 +1,4 @@
 .out/
+wt
 __pycache__/
 .DS_Store

@@ -3,6 +3,11 @@
 ## Project Overview
 WT is a CLI work timer for tracking pomodoro-style work/break cycles. Implemented in Go (`wt.go`) using the `urfave/cli/v3` framework.
 
+## Game System (`wt-game.go`)
+The game layer is an optional RPG gamification system inspired by apps like **Habitica**, **Focus Quest: Pomodoro ADHD app**, and **Forest**. It adds streaks, XP, levels, achievements, consumable rewards, and daily quests on top of the core timer — turning focused work into tangible progression without changing the timer mechanics themselves. By default, game state lives in `~/Documents/wtg.json`, separate from the timer data.
+
+For isolated development and tests, set `WT_GAME_PATH` to override the game file location.
+
 ## Architecture
 
 ### Core Data Model
@@ -84,6 +89,8 @@ The current cycle start time is always **calculated** via `timer.CurrentCycleSta
 ### Environment Requirement
 `$WT_ROOT` environment variable **must** be set. All file paths are relative to this. The test script sets this to a temp directory.
 
+`$WT_GAME_PATH` is optional. If set, game state is read/written there instead of the default `~/Documents/wtg.json`.
+
 ### Mock Time for Testing
 `$WT_MOCK_TIME` environment variable enables deterministic testing without sleep:
 - Format: `"YYYY-MM-DD HH:MM"` (e.g., `"2026-01-20 09:00"`)
@@ -94,7 +101,7 @@ The current cycle start time is always **calculated** via `timer.CurrentCycleSta
 
 ### Building
 ```bash
-go build -o .out/wt wt.go
+go build -o .out/wt wt.go wt-game.go
 ```
 
 ### Running Tests
@@ -108,12 +115,49 @@ Tests use snapshot testing (exact output matching) with `$WT_MOCK_TIME` for dete
 4. Cleanup is automatic (even on failure)
 
 ### Manual Testing
+
+For everyday manual testing, prefer the isolated wrapper command:
+
 ```bash
-export WT_ROOT=/tmp/wt-dev
-go build -o .out/wt wt.go && ./.out/wt new
-./.out/wt start
-./.out/wt check
+./wt-manual.sh <wt-command> [args]
 ```
+
+Examples:
+
+```bash
+./wt-manual.sh new
+./wt-manual.sh start
+./wt-manual.sh check
+```
+
+This wrapper always uses temporary state paths:
+- `WT_ROOT=/tmp/wt-manual-$USER`
+- `WT_GAME_PATH=/tmp/wt-manual-$USER/wtg.json`
+
+So manual experiments never touch your real timer data or `~/Documents/wtg.json` game data.
+
+**Important**: Use the isolated test environment script to avoid polluting your real work log with test data.
+
+```bash
+./test-manual.sh [scenario]
+```
+
+The `test-manual.sh` script provides safe, isolated testing with 5 built-in scenarios:
+- **`basic`** - Timer operations: new, start, pause, resume, stop, check
+- **`game`** - Game state transitions: quests activation, level-ups, streaks, achievements
+- **`break-time`** - Break budgeting command variations: `wt bt` with different targets and --total flags
+- **`full-day`** - Realistic workday simulation: start 08:15, work/break cycles, lunch skip/move, finish near 16:30 target
+- **`interactive`** - Interactive shell in isolated environment for manual exploration
+
+Each scenario:
+1. Creates an isolated `/tmp/wt-manual-$$` environment (doesn't affect real `$WT_ROOT` or `~/Documents/wtg.json`)
+2. Builds the current binary
+3. Runs the test sequence
+4. Prints results and cleanup instructions
+
+Example: `./test-manual.sh full-day` runs a complete workday simulation.
+
+**Why isolation matters**: Test data lives in a temporary directory that can be safely cleaned up afterward, preventing duplicate entries in your actual work log when experimenting with commands.
 
 ## Common Modification Points
 

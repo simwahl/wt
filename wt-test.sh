@@ -499,36 +499,40 @@ fi
 TESTS_RUN=$((TESTS_RUN + 1))
 
 ###############################################################################
-# Test 11d: Error when using pause add/sub syntax
+# Test 11d: pause add/sub modifies current cycle pause time
 ###############################################################################
-print_test "11d" "Error when using pause add/sub syntax"
+print_test "11d" "pause add/sub modifies current cycle pause time"
 setup_test
 
 mock_time "2026-01-20 09:00"
 run_wt new
 
 run_wt start
-mock_time "2026-01-20 09:10"
+mock_time "2026-01-20 10:00"
 
-if ./.out/wt pause add 4 2>&1 | grep -q "wt mod <cycle> pause add/sub"; then
-    print_pass "correctly rejects 'pause add' and shows correct usage"
+run_wt pause add 15
+
+if ./.out/wt log 2>&1 | grep -q "|15m|"; then
+    print_pass "pause add increases pause time"
 else
-    print_fail "should reject 'pause add' with hint to use 'wt mod <cycle> pause add/sub'"
+    print_fail "pause add should increase current cycle paused time"
 fi
 TESTS_RUN=$((TESTS_RUN + 1))
 
-if ./.out/wt pause sub 4 2>&1 | grep -q "wt mod <cycle> pause add/sub"; then
-    print_pass "correctly rejects 'pause sub' and shows correct usage"
+run_wt pause sub 5
+
+if ./.out/wt log 2>&1 | grep -q "|10m|"; then
+    print_pass "pause sub decreases pause time"
 else
-    print_fail "should reject 'pause sub' with hint to use 'wt mod <cycle> pause add/sub'"
+    print_fail "pause sub should decrease current cycle paused time"
 fi
 TESTS_RUN=$((TESTS_RUN + 1))
 
-# Verify timer is still running (pause should have failed)
+# Verify timer is still running (pause add/sub should not pause the timer)
 if ./.out/wt status 2>&1 | grep -q "running"; then
-    print_pass "timer still running after failed pause add/sub"
+    print_pass "timer still running after pause add/sub"
 else
-    print_fail "timer should still be running after failed pause add/sub"
+    print_fail "timer should still be running after pause add/sub"
 fi
 TESTS_RUN=$((TESTS_RUN + 1))
 

@@ -3,9 +3,11 @@
 TEST_DIR := /tmp/wt-test-$$$$
 
 test:
+	@echo "Running unit tests..."
+	@go test ./...
 	@echo "Building Go binary..."
 	@mkdir -p .out
-	@go build -o .out/wt wt.go
+	@go build -o .out/wt wt.go wt-game.go
 	@echo "Setting up test environment..."
 	@mkdir -p $(TEST_DIR)
 	@export WT_ROOT=$(TEST_DIR) && \
