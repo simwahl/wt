@@ -429,8 +429,10 @@ func minutesToDayHourMinuteStr(mins int) string {
 }
 
 // streakDisplayStr returns a human-readable streak string like "0.5 days" or "2.9 days".
+// Truncates (floors) to 1 decimal place so streak never appears reached before it actually is.
 func streakDisplayStr(days, hours int) string {
 	value := float64(days) + float64(hours)/24.0
+	value = float64(int(value*10)) / 10
 	return fmt.Sprintf("%.1f days", value)
 }
 
@@ -849,6 +851,130 @@ func refOffsetForWork(targetWork int) int {
 		}
 	}
 	return last.offsetMins
+}
+
+// actualWorkAtOffset returns cumulative work minutes at a given offset (minutes since day start)
+// by walking the timeline entries and optionally including the current running/paused cycle.
+func actualWorkAtOffset(timer *Timer, offsetMins int) int {
+	if offsetMins <= 0 {
+		return 0
+	}
+	cumulativeWork := 0
+	entryStart := 0 // offset of current entry start
+	for _, entry := range timer.Timeline {
+		entryEnd := entryStart + entry.Duration()
+		if entry.Type == "work" {
+			if offsetMins >= entryEnd {
+				cumulativeWork += entry.Minutes
+			} else if offsetMins > entryStart {
+				// partially through this work entry — interpolate
+				fraction := float64(offsetMins-entryStart) / float64(entry.Duration())
+				cumulativeWork += int(fraction * float64(entry.Minutes))
+			}
+		}
+		if offsetMins <= entryEnd {
+			return cumulativeWork
+		}
+		entryStart = entryEnd
+	}
+	// Beyond timeline — include current running/paused cycle if active
+	if timer.Status == StatusRunning || timer.Status == StatusPaused {
+		currentWork := calculateCurrentMinutes(timer)
+		cycleStartOffset := entryStart
+		now := getCurrentTime()
+		dayStart, _ := parseTime(timer.DayStart)
+		nowOffset := int(now.Sub(dayStart).Minutes())
+		cycleDuration := nowOffset - cycleStartOffset
+		if cycleDuration > 0 && offsetMins > cycleStartOffset {
+			if offsetMins >= nowOffset {
+				cumulativeWork += currentWork
+			} else {
+				fraction := float64(offsetMins-cycleStartOffset) / float64(cycleDuration)
+				cumulativeWork += int(fraction * float64(currentWork))
+			}
+		}
+	}
+	return cumulativeWork
+}
+
+// normCmd shows hour-by-hour comparison of actual work vs reference day.
+func normCmd() error {
+	timer, err := load()
+	if err != nil {
+		return err
+	}
+	if timer == nil || timer.DayStart == "" {
+		return fmt.Errorf("no active timer — run 'wt new' first")
+	}
+
+	now := getCurrentTime()
+	dayStart, err := parseTime(timer.DayStart)
+	if err != nil {
+		return fmt.Errorf("could not parse day start: %w", err)
+	}
+
+	nowOffset := int(now.Sub(dayStart).Minutes())
+
+	// Build hour boundaries aligned to clock hours
+	// Start from the clock hour at or before dayStart, step by 60
+	startHour := time.Date(dayStart.Year(), dayStart.Month(), dayStart.Day(),
+		dayStart.Hour(), 0, 0, 0, dayStart.Location())
+	if startHour.Before(dayStart) {
+		startHour = startHour.Add(time.Hour)
+	}
+
+	fmt.Printf("%-9s %8s %8s %8s\n", "Hour", "Normal", "Actual", "Diff")
+	fmt.Println("--------- -------- -------- --------")
+
+	printedNow := false
+	for h := startHour; ; h = h.Add(time.Hour) {
+		offset := int(h.Sub(dayStart).Minutes())
+
+		// If we've passed "now", print the now row first
+		if !printedNow && offset > nowOffset {
+			printNormRow("now", nowOffset, timer, true)
+			printedNow = true
+		}
+
+		if offset > nowOffset {
+			break
+		}
+
+		printNormRow(h.Format("15:04"), offset, timer, false)
+	}
+
+	if !printedNow {
+		printNormRow("now", nowOffset, timer, true)
+	}
+
+	return nil
+}
+
+func printNormRow(label string, offset int, timer *Timer, isNow bool) {
+	normal := refWorkAtOffset(offset)
+	actual := actualWorkAtOffset(timer, offset)
+	diff := actual - normal
+
+	normalStr := minutesToDayHourMinuteStr(normal)
+	actualStr := minutesToDayHourMinuteStr(actual)
+
+	var diffStr string
+	if diff == 0 {
+		diffStr = "  -"
+	} else if diff > 0 {
+		// Behind: worked more than normal means... actually ahead
+		// Positive diff = actual > normal = ahead of schedule
+		diffStr = fmt.Sprintf("%s-%s%s", colorGreen, minutesToDayHourMinuteStr(diff), colorReset)
+	} else {
+		diffStr = fmt.Sprintf("%s+%s%s", colorRed, minutesToDayHourMinuteStr(-diff), colorReset)
+	}
+
+	marker := ""
+	if isNow {
+		marker = "  ←"
+	}
+
+	fmt.Printf("%-9s %8s %8s %8s%s\n", label, normalStr, actualStr, diffStr, marker)
 }
 
 // etaCmd prints the ETA for completing a given work target (in decimal hours).

@@ -457,6 +457,15 @@ func main() {
 				},
 			},
 			{
+				Name:  "norm",
+				Usage: "Compare your work day against the reference day hour-by-hour",
+				Description: "Shows a table of expected vs actual cumulative work at each clock hour, " +
+					"with colored +/- diffs. Green means ahead, red means behind.",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					return normCmd()
+				},
+			},
+			{
 				Name:  "help",
 				Usage: "Show help",
 				Action: func(ctx context.Context, cmd *cli.Command) error {

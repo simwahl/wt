@@ -115,6 +115,30 @@ func TestStreakMultiplier(t *testing.T) {
 }
 
 // ----------------------------------------------------------------------------
+// streakDisplayStr
+// ----------------------------------------------------------------------------
+
+func TestStreakDisplayStr(t *testing.T) {
+	cases := []struct {
+		days, hours int
+		want        string
+	}{
+		{0, 0, "0.0 days"},
+		{0, 12, "0.5 days"},
+		{1, 0, "1.0 days"},
+		{2, 23, "2.9 days"}, // 23/24=0.958 must truncate, not round to 3.0
+		{3, 0, "3.0 days"},
+		{7, 6, "7.2 days"},
+	}
+	for _, c := range cases {
+		got := streakDisplayStr(c.days, c.hours)
+		if got != c.want {
+			t.Errorf("streakDisplayStr(%d, %d) = %q, want %q", c.days, c.hours, got, c.want)
+		}
+	}
+}
+
+// ----------------------------------------------------------------------------
 // xpRequiredForLevel
 // ----------------------------------------------------------------------------
 
