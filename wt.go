@@ -134,7 +134,7 @@ func main() {
 				Name:        "start",
 				Usage:       "Starts a new timer or continues paused timer",
 				ArgsUsage:   "[time]",
-				Description: "Optionally provide time in HHMM format to backdate start (first cycle) or reduce previous break (subsequent cycles)",
+				Description: "Optionally provide HH:MM clock time or HHMM duration to backdate start (first cycle) or reduce previous break (subsequent cycles)",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					timer, err := load()
 					if err != nil {
@@ -995,9 +995,17 @@ func saveDailyReport(timer *Timer) error {
 // Command implementations
 
 func startCmd(timer *Timer, startTime string) error {
+	isClockTime := false
 	if startTime != "" {
-		if err := validateTimeString(startTime); err != nil {
-			return err
+		if strings.Contains(startTime, ":") {
+			if err := validateClockTimeString(startTime); err != nil {
+				return err
+			}
+			isClockTime = true
+		} else {
+			if err := validateTimeString(startTime); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1021,7 +1029,20 @@ func startCmd(timer *Timer, startTime string) error {
 
 	// If start_time is provided on subsequent cycle, validate break duration first
 	if startTime != "" && !isFirstCycle {
-		backdateMinutes, _ := stringTimeToMinutes(startTime)
+		var backdateMinutes int
+		if isClockTime {
+			hour, _ := strconv.Atoi(startTime[:2])
+			minute, _ := strconv.Atoi(startTime[3:])
+			now := getCurrentTime()
+			y, m, d := now.Date()
+			clockTime := time.Date(y, m, d, hour, minute, 0, 0, now.Location())
+			backdateMinutes = deltaMinutes(clockTime, now)
+			if backdateMinutes < 0 {
+				return fmt.Errorf("Start time %s is in the future.", startTime)
+			}
+		} else {
+			backdateMinutes, _ = stringTimeToMinutes(startTime)
+		}
 		// Calculate what the break would be
 		if timer.StopDatetimeStr != "" {
 			breakStart, _ := parseTime(timer.StopDatetimeStr)
@@ -1076,15 +1097,39 @@ func startCmd(timer *Timer, startTime string) error {
 
 	// Handle start_time parameter
 	if startTime != "" {
-		backdateMinutes, _ := stringTimeToMinutes(startTime)
+		var backdateMinutes int
+		if isClockTime {
+			hour, _ := strconv.Atoi(startTime[:2])
+			minute, _ := strconv.Atoi(startTime[3:])
+			now := getCurrentTime()
+			y, m, d := now.Date()
+			clockTime := time.Date(y, m, d, hour, minute, 0, 0, now.Location())
+			backdateMinutes = deltaMinutes(clockTime, now)
+		} else {
+			backdateMinutes, _ = stringTimeToMinutes(startTime)
+		}
 
 		if isFirstCycle {
-			// Backdate the day_start and pause_start_str
-			dayStart, _ := parseTime(timer.DayStart)
-			timer.DayStart = dayStart.Add(-time.Duration(backdateMinutes) * time.Minute).Format(DT_FORMAT)
+			if isClockTime {
+				// Set day_start and pause_start_str to the exact clock time
+				hour, _ := strconv.Atoi(startTime[:2])
+				minute, _ := strconv.Atoi(startTime[3:])
+				now := getCurrentTime()
+				y, m, d := now.Date()
+				clockTime := time.Date(y, m, d, hour, minute, 0, 0, now.Location())
+				if clockTime.After(now) {
+					return fmt.Errorf("Start time %s is in the future.", startTime)
+				}
+				timer.DayStart = clockTime.Format(DT_FORMAT)
+				timer.PauseStartStr = clockTime.Format(DT_FORMAT)
+			} else {
+				// Backdate the day_start and pause_start_str
+				dayStart, _ := parseTime(timer.DayStart)
+				timer.DayStart = dayStart.Add(-time.Duration(backdateMinutes) * time.Minute).Format(DT_FORMAT)
 
-			pauseStartDt, _ := parseTime(timer.PauseStartStr)
-			timer.PauseStartStr = pauseStartDt.Add(-time.Duration(backdateMinutes) * time.Minute).Format(DT_FORMAT)
+				pauseStartDt, _ := parseTime(timer.PauseStartStr)
+				timer.PauseStartStr = pauseStartDt.Add(-time.Duration(backdateMinutes) * time.Minute).Format(DT_FORMAT)
+			}
 
 			if err := save(timer); err != nil {
 				return err
