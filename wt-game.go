@@ -1103,7 +1103,8 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 	if streakDecimal > bestStreak {
 		bestStreak = streakDecimal
 	}
-	sb.WriteString(fmt.Sprintf("  %sBest streak: %.1f days%s\n", colorDim, bestStreak, colorReset))
+	bestStreakTrunc := float64(int(bestStreak*10)) / 10
+	sb.WriteString(fmt.Sprintf("  %sBest streak: %.1f days%s\n", colorDim, bestStreakTrunc, colorReset))
 
 	// Count saves since last streak reset
 	lastReset := ""
