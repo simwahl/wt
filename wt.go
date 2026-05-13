@@ -378,14 +378,15 @@ func main() {
 							},
 						},
 					},
-					{
-						Name:    "consume",
-						Aliases: []string{"c"},
-						Usage:   "List or consume an available consumable reward",
-						Action: func(ctx context.Context, cmd *cli.Command) error {
-							return gameConsumeCmd(cmd.Args().Get(0))
-						},
-					},
+					// Consumables system disabled for now
+					// {
+					// 	Name:    "consume",
+					// 	Aliases: []string{"c"},
+					// 	Usage:   "List or consume an available consumable reward",
+					// 	Action: func(ctx context.Context, cmd *cli.Command) error {
+					// 		return gameConsumeCmd(cmd.Args().Get(0))
+					// 	},
+					// },
 					{
 						Name:  "saved",
 						Usage: "Record a willpower save — resisted the urge to do something else",

@@ -95,7 +95,8 @@ type ConsumableDef struct {
 }
 
 var allConsumables = []ConsumableDef{
-	{ID: "hobby_10min", Label: "10min Hobby Time", StreakEvery: 3},
+	// Consumables system disabled for now
+	// {ID: "hobby_10min", Label: "10min Hobby Time", StreakEvery: 3},
 }
 
 // --- Daily Quest System ---
@@ -650,9 +651,12 @@ func applySessionToGame(game *GameState, sessionMins int, dayStart time.Time) []
 	}
 
 	// Award consumables on the first session of a milestone streak day
-	if streakDay > 0 {
+	// Use date-based streak day (midnight-to-midnight) so that the streak day
+	// is stable regardless of the exact dayStart time within that date.
+	dateStreakDay := streakDayForDate(game, dateStr)
+	if dateStreakDay > 0 {
 		for _, c := range allConsumables {
-			if c.StreakEvery > 0 && streakDay%c.StreakEvery == 0 {
+			if c.StreakEvery > 0 && dateStreakDay%c.StreakEvery == 0 {
 				alreadyAwarded := false
 				for _, existing := range game.Consumables {
 					if existing.ID == c.ID && existing.AwardedDate == dateStr {
@@ -1095,11 +1099,11 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 		totalAllTimeMins += entry.Minutes
 	}
 
-	// Consumables
-	available := 0
-	if len(allConsumables) > 0 {
-		available = availableConsumablesCount(game, allConsumables[0].ID)
-	}
+	// Consumables display disabled for now
+	// available := 0
+	// if len(allConsumables) > 0 {
+	// 	available = availableConsumablesCount(game, allConsumables[0].ID)
+	// }
 
 	// Header
 	sb.WriteString(colorBold + "=== Work Timer RPG ===" + colorReset + "\n")
@@ -1268,13 +1272,13 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 			colorBold+colorGreen, todayTotalXP, colorReset))
 	}
 
-	// Consumables
-	if available > 0 {
-		sb.WriteString("\n")
-		sb.WriteString("  Consumables\n")
-		sb.WriteString(fmt.Sprintf("  %s  ×%d available   %s[wt game consume]%s\n",
-			allConsumables[0].Label, available, colorDim, colorReset))
-	}
+	// Consumables display disabled for now
+	// if available > 0 {
+	// 	sb.WriteString("\n")
+	// 	sb.WriteString("  Consumables\n")
+	// 	sb.WriteString(fmt.Sprintf("  %s  ×%d available   %s[wt game consume]%s\n",
+	// 		allConsumables[0].Label, available, colorDim, colorReset))
+	// }
 
 	// New achievement unlocks (shown once, then cleared)
 	if len(game.NewAchievements) > 0 {
