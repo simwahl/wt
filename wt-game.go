@@ -770,8 +770,21 @@ type refEntry struct {
 	cumulativeWork int
 }
 
+// refDayStart defines the fixed clock time the reference day begins.
+// Used by normCmd to anchor the "Normal" column to an absolute schedule.
+const (
+	refDayStartHour = 8
+	refDayStartMin  = 15
+)
+
+// refAnchorTime returns today's reference start time (08:15) for the given time.
+func refAnchorTime(now time.Time) time.Time {
+	return time.Date(now.Year(), now.Month(), now.Day(),
+		refDayStartHour, refDayStartMin, 0, 0, now.Location())
+}
+
 // referenceDay is a static model of a standard productive work day.
-// Offsets are minutes since day start (0 = the moment wt new was run).
+// Offsets are minutes since reference day start (08:15).
 //
 // 01. [+000 => +045] Work: 0h:45m  (0h:45m)
 // 02. [+045 => +065] Break: 0h:20m
@@ -898,6 +911,8 @@ func actualWorkAtOffset(timer *Timer, offsetMins int) int {
 }
 
 // normCmd shows hour-by-hour comparison of actual work vs reference day.
+// The "Normal" column is anchored to a fixed reference start time (08:15)
+// so that starting late correctly shows you behind the reference schedule.
 func normCmd() error {
 	timer, err := load()
 	if err != nil {
@@ -913,13 +928,19 @@ func normCmd() error {
 		return fmt.Errorf("could not parse day start: %w", err)
 	}
 
-	nowOffset := int(now.Sub(dayStart).Minutes())
+	anchor := refAnchorTime(now)
+	nowRefOffset := int(now.Sub(anchor).Minutes())       // offset from reference anchor (for Normal column)
+	nowActualOffset := int(now.Sub(dayStart).Minutes())   // offset from dayStart (for Actual column)
+	anchorToDayStart := int(dayStart.Sub(anchor).Minutes()) // how far dayStart is from anchor
 
-	// Build hour boundaries aligned to clock hours
-	// Start from the clock hour at or before dayStart, step by 60
-	startHour := time.Date(dayStart.Year(), dayStart.Month(), dayStart.Day(),
-		dayStart.Hour(), 0, 0, 0, dayStart.Location())
-	if startHour.Before(dayStart) {
+	// Build hour boundaries starting from the earlier of anchor and dayStart, aligned to clock hours
+	earliest := anchor
+	if dayStart.Before(anchor) {
+		earliest = dayStart
+	}
+	startHour := time.Date(earliest.Year(), earliest.Month(), earliest.Day(),
+		earliest.Hour(), 0, 0, 0, earliest.Location())
+	if startHour.Before(earliest) {
 		startHour = startHour.Add(time.Hour)
 	}
 
@@ -928,31 +949,32 @@ func normCmd() error {
 
 	printedNow := false
 	for h := startHour; ; h = h.Add(time.Hour) {
-		offset := int(h.Sub(dayStart).Minutes())
+		refOffset := int(h.Sub(anchor).Minutes())
+		actualOffset := refOffset - anchorToDayStart
 
 		// If we've passed "now", print the now row first
-		if !printedNow && offset > nowOffset {
-			printNormRow("now", nowOffset, timer, true)
+		if !printedNow && refOffset > nowRefOffset {
+			printNormRow("now", nowRefOffset, nowActualOffset, timer, true)
 			printedNow = true
 		}
 
-		if offset > nowOffset {
+		if refOffset > nowRefOffset {
 			break
 		}
 
-		printNormRow(h.Format("15:04"), offset, timer, false)
+		printNormRow(h.Format("15:04"), refOffset, actualOffset, timer, false)
 	}
 
 	if !printedNow {
-		printNormRow("now", nowOffset, timer, true)
+		printNormRow("now", nowRefOffset, nowActualOffset, timer, true)
 	}
 
 	return nil
 }
 
-func printNormRow(label string, offset int, timer *Timer, isNow bool) {
-	normal := refWorkAtOffset(offset)
-	actual := actualWorkAtOffset(timer, offset)
+func printNormRow(label string, refOffset int, actualOffset int, timer *Timer, isNow bool) {
+	normal := refWorkAtOffset(refOffset)
+	actual := actualWorkAtOffset(timer, actualOffset)
 	diff := actual - normal
 
 	normalStr := minutesToDayHourMinuteStr(normal)
@@ -1249,8 +1271,9 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 	// Consumables
 	if available > 0 {
 		sb.WriteString("\n")
-		sb.WriteString(fmt.Sprintf("  %s%s  ×%d available%s   [wt game consume]\n",
-			colorBold+colorYellow, allConsumables[0].Label, available, colorReset))
+		sb.WriteString("  Consumables\n")
+		sb.WriteString(fmt.Sprintf("  %s  ×%d available   %s[wt game consume]%s\n",
+			allConsumables[0].Label, available, colorDim, colorReset))
 	}
 
 	// New achievement unlocks (shown once, then cleared)
