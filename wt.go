@@ -462,7 +462,17 @@ func main() {
 				Usage: "Compare your work day against the reference day hour-by-hour",
 				Description: "Shows a table of expected vs actual cumulative work at each clock hour, " +
 					"with colored +/- diffs. Green means ahead, red means behind.",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:    "example",
+						Aliases: []string{"e"},
+						Usage:   "Print the reference day as a wt log example (start 08:15)",
+					},
+				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
+					if cmd.Bool("example") {
+						return normExampleCmd()
+					}
 					return normCmd()
 				},
 			},

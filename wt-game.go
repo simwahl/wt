@@ -914,6 +914,44 @@ func actualWorkAtOffset(timer *Timer, offsetMins int) int {
 	return cumulativeWork
 }
 
+// normExampleCmd prints the reference day schedule in wt log format.
+func normExampleCmd() error {
+	anchor := time.Date(2026, 1, 1, refDayStartHour, refDayStartMin, 0, 0, time.Local)
+	currentTime := anchor
+	lineNum := 1
+	runningTotal := 0
+
+	for i := 1; i < len(referenceDay); i++ {
+		prev := referenceDay[i-1]
+		curr := referenceDay[i]
+		duration := curr.offsetMins - prev.offsetMins
+		workDelta := curr.cumulativeWork - prev.cumulativeWork
+
+		startTimeStr := currentTime.Format(TIME_ONLY_FORMAT)
+		endTime := currentTime.Add(time.Duration(duration) * time.Minute)
+		endTimeStr := endTime.Format(TIME_ONLY_FORMAT)
+
+		if workDelta > 0 {
+			// Work block
+			runningTotal += workDelta
+			fmt.Printf("%02d. [%s => %s] Work: %s (%s)\n",
+				lineNum, startTimeStr, endTimeStr,
+				minutesToHourMinuteStr(workDelta),
+				minutesToHourMinuteStr(runningTotal))
+		} else {
+			// Break block
+			fmt.Printf("%02d. [%s => %s] Break: %s\n",
+				lineNum, startTimeStr, endTimeStr,
+				minutesToHourMinuteStr(duration))
+		}
+
+		currentTime = endTime
+		lineNum++
+	}
+
+	return nil
+}
+
 // normCmd shows hour-by-hour comparison of actual work vs reference day.
 // The "Normal" column is anchored to a fixed reference start time (08:15)
 // so that starting late correctly shows you behind the reference schedule.
