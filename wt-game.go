@@ -1057,10 +1057,6 @@ func etaCmd(targetHours float64, showBreakTime bool) error {
 	}
 
 	now := getCurrentTime()
-	dayStart, err := parseTime(timer.DayStart)
-	if err != nil {
-		return fmt.Errorf("could not parse day start: %w", err)
-	}
 
 	targetWorkMins := int(targetHours * 60)
 
@@ -1083,10 +1079,14 @@ func etaCmd(targetHours float64, showBreakTime bool) error {
 		return nil
 	}
 
-	todayOffsetMins := int(now.Sub(dayStart).Minutes())
-	delta := todayMins - refWorkAtOffset(todayOffsetMins)
-	etaOffset := refOffsetForWork(targetWorkMins) - delta
-	eta := dayStart.Add(time.Duration(etaOffset) * time.Minute)
+	remainingClockMins := refOffsetForWork(targetWorkMins) - refOffsetForWork(todayMins)
+	// Round now up to next minute so the HH:MM-formatted ETA always has
+	// at least remainingClockMins of clock time when breakTimeCmd re-parses it.
+	nowCeil := now.Truncate(time.Minute)
+	if now.After(nowCeil) {
+		nowCeil = nowCeil.Add(time.Minute)
+	}
+	eta := nowCeil.Add(time.Duration(remainingClockMins) * time.Minute)
 
 	etaStr := eta.Format("15:04")
 	fmt.Printf("ETA for %.4gh:  %s\n", targetHours, etaStr)
