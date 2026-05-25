@@ -1011,6 +1011,11 @@ func normCmd() error {
 		printNormRow("now", nowRefOffset, nowActualOffset, timer, true)
 	}
 
+	// Print norm end time (when reference schedule reaches 5.5h of work)
+	normEndOffset := refOffsetForWork(330)
+	normEndTime := anchor.Add(time.Duration(normEndOffset) * time.Minute)
+	fmt.Printf("\nNorm end (5.5h): %s\n", normEndTime.Format("15:04"))
+
 	return nil
 }
 
