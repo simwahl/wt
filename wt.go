@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -474,6 +476,37 @@ func main() {
 						return normExampleCmd()
 					}
 					return normCmd()
+				},
+			},
+			{
+				Name:  "flex",
+				Usage: "Track flex-time balance",
+				Action: func(ctx context.Context, cmd *cli.Command) error {
+					return flexCmd()
+				},
+				Commands: []*cli.Command{
+					{
+						Name:      "add",
+						Usage:     "Add hours to flex balance",
+						ArgsUsage: "<hours>",
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							if cmd.Args().Len() == 0 {
+								return fmt.Errorf("usage: wt flex add <hours>  (e.g. wt flex add 0.5)")
+							}
+							return flexAddCmd(cmd.Args().Get(0))
+						},
+					},
+					{
+						Name:      "sub",
+						Usage:     "Subtract hours from flex balance",
+						ArgsUsage: "<hours>",
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							if cmd.Args().Len() == 0 {
+								return fmt.Errorf("usage: wt flex sub <hours>  (e.g. wt flex sub 0.5)")
+							}
+							return flexSubCmd(cmd.Args().Get(0))
+						},
+					},
 				},
 			},
 			{
@@ -2325,5 +2358,172 @@ func debugCmd() error {
 		fmt.Printf("No file at %s\n", filePath)
 	}
 
+	return nil
+}
+
+// Flex command implementation
+
+func flexFilePath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine home directory: %w", err)
+	}
+	return filepath.Join(home, "Documents", "Obsidian", "Work", "Private", "Flex.md"), nil
+}
+
+func formatFlexBalance(val float64) string {
+	if val == 0 {
+		return "0"
+	}
+	if val == math.Trunc(val) {
+		if val > 0 {
+			return fmt.Sprintf("+%d", int(val))
+		}
+		return fmt.Sprintf("%d", int(val))
+	}
+	if val > 0 {
+		return fmt.Sprintf("+%s", strconv.FormatFloat(val, 'f', -1, 64))
+	}
+	return strconv.FormatFloat(val, 'f', -1, 64)
+}
+
+func parseFlexAmount(s string) (float64, error) {
+	val, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid amount %q — use a number like 0.5 or 2", s)
+	}
+	if val <= 0 {
+		return 0, nil // caller handles sign-specific error
+	}
+	remainder := math.Mod(val, 0.5)
+	if remainder > 0.001 && remainder < 0.499 {
+		return 0, fmt.Errorf("amount must be a multiple of 0.5")
+	}
+	return val, nil
+}
+
+func readFlexFile(path string) (float64, []string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer f.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, nil, err
+	}
+
+	if len(lines) == 0 {
+		return 0, nil, nil
+	}
+
+	balanceStr := strings.TrimSuffix(strings.TrimSpace(lines[0]), "h")
+	balance, err := strconv.ParseFloat(balanceStr, 64)
+	if err != nil {
+		return 0, nil, fmt.Errorf("cannot parse balance %q from first line", lines[0])
+	}
+
+	var changelog []string
+	for i := 1; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) != "" {
+			changelog = append(changelog, lines[i])
+		} else if len(changelog) > 0 {
+			changelog = append(changelog, lines[i])
+		}
+	}
+
+	return balance, changelog, nil
+}
+
+func writeFlexFile(path string, balance float64, changelog []string) error {
+	var sb strings.Builder
+	sb.WriteString(formatFlexBalance(balance))
+	sb.WriteString("\n\n")
+	for _, line := range changelog {
+		sb.WriteString(line)
+		sb.WriteString("\n")
+	}
+	return os.WriteFile(path, []byte(sb.String()), 0644)
+}
+
+func flexCmd() error {
+	path, err := flexFilePath()
+	if err != nil {
+		return err
+	}
+
+	balance, _, err := readFlexFile(path)
+	if err != nil {
+		return fmt.Errorf("cannot read flex file: %w", err)
+	}
+
+	fmt.Printf("%sh\n", formatFlexBalance(balance))
+	return nil
+}
+
+func flexAddCmd(amountStr string) error {
+	val, err := parseFlexAmount(amountStr)
+	if err != nil {
+		return err
+	}
+	if val <= 0 {
+		return fmt.Errorf("amount must be positive — use \"wt flex sub %s\" instead", strings.TrimPrefix(amountStr, "-"))
+	}
+
+	path, err := flexFilePath()
+	if err != nil {
+		return err
+	}
+
+	oldBalance, changelog, err := readFlexFile(path)
+	if err != nil {
+		return fmt.Errorf("cannot read flex file: %w", err)
+	}
+
+	newBalance := oldBalance + val
+	entry := fmt.Sprintf("%s +%s", getCurrentTime().Format("2006-01-02"), strconv.FormatFloat(val, 'f', -1, 64))
+	changelog = append([]string{entry}, changelog...)
+
+	if err := writeFlexFile(path, newBalance, changelog); err != nil {
+		return fmt.Errorf("cannot write flex file: %w", err)
+	}
+
+	fmt.Printf("%sh → %sh\n", formatFlexBalance(oldBalance), formatFlexBalance(newBalance))
+	return nil
+}
+
+func flexSubCmd(amountStr string) error {
+	val, err := parseFlexAmount(amountStr)
+	if err != nil {
+		return err
+	}
+	if val <= 0 {
+		return fmt.Errorf("amount must be positive — use \"wt flex add %s\" instead", strings.TrimPrefix(amountStr, "-"))
+	}
+
+	path, err := flexFilePath()
+	if err != nil {
+		return err
+	}
+
+	oldBalance, changelog, err := readFlexFile(path)
+	if err != nil {
+		return fmt.Errorf("cannot read flex file: %w", err)
+	}
+
+	newBalance := oldBalance - val
+	entry := fmt.Sprintf("%s -%s", getCurrentTime().Format("2006-01-02"), strconv.FormatFloat(val, 'f', -1, 64))
+	changelog = append([]string{entry}, changelog...)
+
+	if err := writeFlexFile(path, newBalance, changelog); err != nil {
+		return fmt.Errorf("cannot write flex file: %w", err)
+	}
+
+	fmt.Printf("%sh → %sh\n", formatFlexBalance(oldBalance), formatFlexBalance(newBalance))
 	return nil
 }

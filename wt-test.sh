@@ -1424,6 +1424,69 @@ check_output "check shows overnight warning" "$expected_warning" "$(echo "$actua
 expected_hint="  Use 'wt stop HH:MM' to set the actual stop time on 2026-01-20."
 check_output "check shows stop hint with date" "$expected_hint" "$(echo "$actual_check" | sed -n '2p')"
 
+###############################################################################
+# Test 40: Flex command - show balance, add, sub
+###############################################################################
+print_test "40" "Flex command - show balance, add, sub"
+setup_test
+
+# Create a temp flex file for testing
+FLEX_TEST_DIR="$WT_ROOT/flex-test"
+mkdir -p "$FLEX_TEST_DIR"
+FLEX_FILE="$FLEX_TEST_DIR/Flex.md"
+printf -- '-3\n' > "$FLEX_FILE"
+
+# Override HOME so flexFilePath resolves to our test file
+# We need to create the expected directory structure under a fake home
+FAKE_HOME="$WT_ROOT/fake-home"
+mkdir -p "$FAKE_HOME/Documents/Obsidian/Work/Private"
+printf -- '-3\n' > "$FAKE_HOME/Documents/Obsidian/Work/Private/Flex.md"
+
+mock_time "2026-01-20 09:00"
+actual_balance=$(HOME="$FAKE_HOME" $WT_CMD flex)
+check_output "flex shows balance" "-3h" "$actual_balance"
+
+actual_add=$(HOME="$FAKE_HOME" $WT_CMD flex add 0.5)
+check_output "flex add shows transition" "-3h → -2.5h" "$actual_add"
+
+actual_sub=$(HOME="$FAKE_HOME" $WT_CMD flex sub 1)
+check_output "flex sub shows transition" "-2.5h → -3.5h" "$actual_sub"
+
+actual_balance2=$(HOME="$FAKE_HOME" $WT_CMD flex)
+check_output "flex balance updated correctly" "-3.5h" "$actual_balance2"
+
+# Verify file format
+expected_file="-3.5
+
+2026-01-20 -1
+2026-01-20 +0.5"
+actual_file=$(cat "$FAKE_HOME/Documents/Obsidian/Work/Private/Flex.md" | head -4 | sed '/^$/!b; /^$/{N; /^\n$/d}')
+check_output "flex file format correct" "$expected_file" "$actual_file"
+
+###############################################################################
+# Test 41: Flex command - validation
+###############################################################################
+print_test "41" "Flex command - validation"
+setup_test
+
+FAKE_HOME="$WT_ROOT/fake-home"
+mkdir -p "$FAKE_HOME/Documents/Obsidian/Work/Private"
+printf -- '0\n' > "$FAKE_HOME/Documents/Obsidian/Work/Private/Flex.md"
+
+# Reject negative amounts
+actual_error=$(HOME="$FAKE_HOME" $WT_CMD flex add -1 2>&1 || true)
+expected_error='amount must be positive — use "wt flex sub 1" instead'
+check_output "flex rejects negative add" "$expected_error" "$actual_error"
+
+# Reject non-0.5 multiples
+actual_error2=$(HOME="$FAKE_HOME" $WT_CMD flex add 1.25 2>&1 || true)
+expected_error2="amount must be a multiple of 0.5"
+check_output "flex rejects non-0.5 multiple" "$expected_error2" "$actual_error2"
+
+# Verify balance unchanged after errors
+actual_balance=$(HOME="$FAKE_HOME" $WT_CMD flex)
+check_output "flex balance unchanged after errors" "0h" "$actual_balance"
+
 echo ""
 echo "=========================================="
 echo "Test Results"
