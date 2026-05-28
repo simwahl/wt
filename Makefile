@@ -5,6 +5,10 @@ TEST_DIR := /tmp/wt-test-$$$$
 test:
 	@echo "Running unit tests..."
 	@go test ./...
+	@echo "\033[0;32m✓ Unit tests passed\033[0m"
+	@echo ""
+	@echo "Running integration tests..."
+	@echo ""
 	@echo "Building Go binary..."
 	@mkdir -p .out
 	@go build -o .out/wt wt.go wt-game.go

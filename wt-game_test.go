@@ -492,6 +492,10 @@ func TestApplySessionToGame(t *testing.T) {
 	})
 
 	t.Run("consumable awarded on first session of a milestone streak day", func(t *testing.T) {
+		old := allConsumables
+		allConsumables = []ConsumableDef{{ID: "hobby_10min", Label: "10min Hobby Time", StreakEvery: 3}}
+		defer func() { allConsumables = old }()
+
 		game := newGame("2026-01-17 09:00") // Jan 20 = day 3 (StreakEvery=3)
 		applySessionToGame(game, 60, mustTime("2026-01-20 09:00"))
 
@@ -504,6 +508,10 @@ func TestApplySessionToGame(t *testing.T) {
 	})
 
 	t.Run("consumable not awarded on non-milestone streak day", func(t *testing.T) {
+		old := allConsumables
+		allConsumables = []ConsumableDef{{ID: "hobby_10min", Label: "10min Hobby Time", StreakEvery: 3}}
+		defer func() { allConsumables = old }()
+
 		game := newGame("2026-01-18 09:00") // Jan 20 = day 2 (not a multiple of 3)
 		applySessionToGame(game, 60, mustTime("2026-01-20 09:00"))
 
@@ -513,6 +521,10 @@ func TestApplySessionToGame(t *testing.T) {
 	})
 
 	t.Run("consumable awarded only once per day (second session same day)", func(t *testing.T) {
+		old := allConsumables
+		allConsumables = []ConsumableDef{{ID: "hobby_10min", Label: "10min Hobby Time", StreakEvery: 3}}
+		defer func() { allConsumables = old }()
+
 		game := newGame("2026-01-17 09:00") // Jan 20 = day 3 (StreakEvery=3)
 		applySessionToGame(game, 30, mustTime("2026-01-20 09:00"))
 		applySessionToGame(game, 30, mustTime("2026-01-20 14:00")) // second session same day

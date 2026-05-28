@@ -822,14 +822,16 @@ var referenceDay = []refEntry{
 
 // refWorkAtOffset returns the cumulative work minutes the reference day had accumulated
 // at the given offset (minutes since day start). Linearly interpolates within work blocks;
-// flat during break blocks. Returns 0 before offset 0, 330 after offset 465.
+// flat during break blocks. Beyond offset 465 extends at 50 min work per 60 min clock.
 func refWorkAtOffset(offsetMins int) int {
 	if offsetMins <= 0 {
 		return 0
 	}
 	last := referenceDay[len(referenceDay)-1]
 	if offsetMins >= last.offsetMins {
-		return last.cumulativeWork
+		const extendedRate = 50.0 / 60.0 // 50m work per hour beyond reference
+		extra := float64(offsetMins-last.offsetMins) * extendedRate
+		return last.cumulativeWork + int(extra)
 	}
 	for i := 1; i < len(referenceDay); i++ {
 		prev := referenceDay[i-1]
@@ -1079,14 +1081,25 @@ func etaCmd(targetHours float64, showBreakTime bool) error {
 		return nil
 	}
 
-	remainingClockMins := refOffsetForWork(targetWorkMins) - refOffsetForWork(todayMins)
-	// Round now up to next minute so the HH:MM-formatted ETA always has
-	// at least remainingClockMins of clock time when breakTimeCmd re-parses it.
-	nowCeil := now.Truncate(time.Minute)
-	if now.After(nowCeil) {
-		nowCeil = nowCeil.Add(time.Minute)
+	// Use the same model as norm: compare actual work to reference work at
+	// the current clock time, then shift the norm end by that delta.
+	// This avoids double-counting breaks already taken (the old formula mapped
+	// work done back to a reference position and included all future reference
+	// breaks from there, even ones already consumed on the clock).
+	anchor := refAnchorTime(now)
+	nowRefOffset := int(now.Sub(anchor).Minutes())
+	refWork := refWorkAtOffset(nowRefOffset)
+	delta := todayMins - refWork // positive = ahead, negative = behind
+
+	normEndOffset := refOffsetForWork(targetWorkMins)
+	eta := anchor.Add(time.Duration(normEndOffset-delta) * time.Minute)
+
+	// Floor: ETA can't be before now + remaining work time (at extended rate)
+	remainingWork := targetWorkMins - todayMins
+	minETA := now.Add(time.Duration(remainingWork) * time.Minute)
+	if eta.Before(minETA) {
+		eta = minETA
 	}
-	eta := nowCeil.Add(time.Duration(remainingClockMins) * time.Minute)
 
 	etaStr := eta.Format("15:04")
 	fmt.Printf("ETA for %.4gh:  %s\n", targetHours, etaStr)
@@ -1236,10 +1249,12 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 		todayRemaining = fmt.Sprintf("   %s%s remaining%s", colorDim, remainingStr, colorReset)
 	}
 	pct := int(float64(todayMins) / float64(fullDayMins) * 100)
-	if pct > 100 {
+	pctColor := colorBold + colorYellow
+	if pct >= 100 {
 		pct = 100
+		pctColor = colorBold + colorGreen
 	}
-	pctStr := fmt.Sprintf("  %s%d%%%s", colorDim, pct, colorReset)
+	pctStr := fmt.Sprintf("  %s%d%%%s", pctColor, pct, colorReset)
 	sb.WriteString(fmt.Sprintf("  %s  %s / 5h 30m%s   %s+%.0f xp%s%s\n", todayBar, todayTimeStr,
 		pctStr, colorBold+colorGreen, todayXP, colorReset, todayRemaining))
 
@@ -1249,13 +1264,11 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 
 		var eta time.Time
 		if timer != nil && timer.DayStart != "" {
-			if dayStart, err := parseTime(timer.DayStart); err == nil {
-				todayOffsetMins := int(today.Sub(dayStart).Minutes())
-				refWork := refWorkAtOffset(todayOffsetMins)
-				delta := todayMins - refWork // positive = ahead, negative = behind
-				etaOffset := refFinishOffset - delta
-				eta = dayStart.Add(time.Duration(etaOffset) * time.Minute)
-			}
+			anchor := refAnchorTime(today)
+			nowRefOffset := int(today.Sub(anchor).Minutes())
+			refWork := refWorkAtOffset(nowRefOffset)
+			delta := todayMins - refWork // positive = ahead, negative = behind
+			eta = anchor.Add(time.Duration(refFinishOffset-delta) * time.Minute)
 		}
 		if !eta.IsZero() {
 			sb.WriteString(fmt.Sprintf("\n  Finish ETA:  %s\n", eta.Format("15:04")))

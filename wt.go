@@ -437,7 +437,7 @@ func main() {
 				Usage:     "Show ETA for a work target",
 				ArgsUsage: "[hours]",
 				Description: "Print the estimated finish time for the given work target in decimal hours (default 5.5). " +
-					"Uses the reference work day model; beyond 5h30m assumes 45 min work per hour.",
+					"Uses the reference work day model; beyond 5h30m assumes 50 min work per hour.",
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:    "break-time",

@@ -1428,8 +1428,9 @@ echo ""
 echo "=========================================="
 echo "Test Results"
 echo "=========================================="
-echo "Tests run: $TESTS_RUN"
-echo "Tests passed: $TESTS_PASSED"
+echo -e "${GREEN}✓ Unit tests passed${NC}"
+echo "Integration tests run: $TESTS_RUN"
+echo "Integration tests passed: $TESTS_PASSED"
 
 if [ $TESTS_RUN -eq $TESTS_PASSED ]; then
     echo -e "${GREEN}All tests passed!${NC}"
