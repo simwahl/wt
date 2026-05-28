@@ -2364,6 +2364,9 @@ func debugCmd() error {
 // Flex command implementation
 
 func flexFilePath() (string, error) {
+	if flexFile := os.Getenv("WT_FLEX_FILE"); flexFile != "" {
+		return flexFile, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine home directory: %w", err)

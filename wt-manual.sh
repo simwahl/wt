@@ -11,6 +11,8 @@ mkdir -p "$STATE_ROOT"
 
 export WT_ROOT="$STATE_ROOT"
 export WT_GAME_PATH="$STATE_ROOT/wtg.json"
+export WT_REPORT_FILE="$STATE_ROOT/daily-reports"
+export WT_FLEX_FILE="$STATE_ROOT/Flex.md"
 export WT_SKIP_PROMPTS=1
 
 BINARY="$SCRIPT_DIR/.out/wt"
@@ -22,6 +24,8 @@ if [ "$#" -eq 0 ]; then
 	echo "wt-manual: isolated wt wrapper"
 	echo "WT_ROOT=$WT_ROOT"
 	echo "WT_GAME_PATH=$WT_GAME_PATH"
+	echo "WT_REPORT_FILE=$WT_REPORT_FILE"
+	echo "WT_FLEX_FILE=$WT_FLEX_FILE"
 	echo ""
 	echo "Usage: ./wt-manual.sh <wt-command> [args]"
 	echo "Examples:"

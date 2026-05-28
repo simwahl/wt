@@ -91,6 +91,10 @@ The current cycle start time is always **calculated** via `timer.CurrentCycleSta
 
 `$WT_GAME_PATH` is optional. If set, game state is read/written there instead of the default `~/Documents/wtg.json`.
 
+`$WT_REPORT_FILE` is optional. If set, daily report is written there instead of `$WT_ROOT/.out/daily-reports`.
+
+`$WT_FLEX_FILE` is optional. If set, flex balance is read/written there instead of `~/Documents/Obsidian/Work/Private/Flex.md`.
+
 ### Mock Time for Testing
 `$WT_MOCK_TIME` environment variable enables deterministic testing without sleep:
 - Format: `"YYYY-MM-DD HH:MM"` (e.g., `"2026-01-20 09:00"`)
@@ -99,10 +103,10 @@ The current cycle start time is always **calculated** via `timer.CurrentCycleSta
 
 ## Development Workflow
 
-### Building
-```bash
-go build -o .out/wt wt.go wt-game.go
-```
+### Build and Run Policy
+Do not manually build and run `.out/wt` during agent verification.
+
+For manual verification, always run commands through `./wt-manual.sh` so all state paths are isolated.
 
 ### Running Tests
 ```bash
@@ -116,25 +120,25 @@ Tests use snapshot testing (exact output matching) with `$WT_MOCK_TIME` for dete
 
 ### Manual Testing
 
-For everyday manual testing, prefer the isolated wrapper command:
+**IMPORTANT: ALWAYS use `./wt-manual.sh` for manual testing.** Never run `.out/wt` directly or with only `WT_ROOT` set — that leaks writes to real files (work log, flex balance, game state).
 
 ```bash
 ./wt-manual.sh <wt-command> [args]
 ```
 
-Examples:
+To use mock time:
 
 ```bash
-./wt-manual.sh new
-./wt-manual.sh start
-./wt-manual.sh check
+WT_MOCK_TIME="2026-01-20 09:00" ./wt-manual.sh start
 ```
 
-This wrapper always uses temporary state paths:
+This wrapper isolates ALL state paths:
 - `WT_ROOT=/tmp/wt-manual-$USER`
 - `WT_GAME_PATH=/tmp/wt-manual-$USER/wtg.json`
+- `WT_REPORT_FILE=/tmp/wt-manual-$USER/daily-reports`
+- `WT_FLEX_FILE=/tmp/wt-manual-$USER/Flex.md`
 
-So manual experiments never touch your real timer data or `~/Documents/wtg.json` game data.
+So manual experiments never touch real timer data, work log, flex balance, or game data.
 
 **Important**: Use the isolated test environment script to avoid polluting your real work log with test data.
 
