@@ -1178,8 +1178,8 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 		colorBold+colorMagenta, streakStr, colorReset,
 		colorBold+colorGreen, multiplier, colorReset))
 	streakBar := renderBar(streakBarFilled, streakBarTotal, barWidth)
-	sb.WriteString(fmt.Sprintf("  %s  %snext milestone: %d days%s\n",
-		streakBar, colorDim, nextGoal, colorReset))
+	sb.WriteString(fmt.Sprintf("  %s  %smilestone progress %d → %d%s\n",
+		streakBar, colorDim, prevGoal, nextGoal, colorReset))
 	sb.WriteString("\n")
 	bestStreak := game.LongestStreak
 	if streakDecimal > bestStreak {
@@ -1263,15 +1263,32 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 		const refFinishOffset = 465 // offset minutes when reference day completes 5h30m
 
 		var eta time.Time
+		var normDiff int
 		if timer != nil && timer.DayStart != "" {
 			anchor := refAnchorTime(today)
 			nowRefOffset := int(today.Sub(anchor).Minutes())
 			refWork := refWorkAtOffset(nowRefOffset)
-			delta := todayMins - refWork // positive = ahead, negative = behind
-			eta = anchor.Add(time.Duration(refFinishOffset-delta) * time.Minute)
+			normDiff = todayMins - refWork // positive = ahead, negative = behind
+			eta = anchor.Add(time.Duration(refFinishOffset-normDiff) * time.Minute)
 		}
 		if !eta.IsZero() {
-			sb.WriteString(fmt.Sprintf("\n  Finish ETA:  %s\n", eta.Format("15:04")))
+			absDiff := normDiff
+			if absDiff < 0 {
+				absDiff = -absDiff
+			}
+
+			diffPrefix := "-"
+			diffColor := colorBold + colorGreen
+			if normDiff > 0 {
+				// Ahead of schedule should be shown as negative (same convention as wt norm).
+				diffPrefix = "-"
+			} else if normDiff < 0 {
+				diffPrefix = "+"
+				diffColor = colorRed
+			}
+			diffStr := fmt.Sprintf("%s%s%s%s", diffColor, diffPrefix, minutesToDayHourMinuteStr(absDiff), colorReset)
+
+			sb.WriteString(fmt.Sprintf("\n  Finish ETA:  %s  %s\n", eta.Format("15:04"), diffStr))
 			breakInETA := int(eta.Sub(today).Minutes()) - (fullDayMins - todayMins)
 			if breakInETA > 0 {
 				sb.WriteString(fmt.Sprintf("  %sBreak time:  %s%s\n", colorDim, minutesToDayHourMinuteStr(breakInETA), colorReset))
