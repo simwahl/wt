@@ -967,12 +967,14 @@ func TestBuildActualActivity(t *testing.T) {
 		if len(activity) != normSpanMins {
 			t.Fatalf("len = %d, want %d", len(activity), normSpanMins)
 		}
-		// [0,30) work, [30,40) pause, [40,55) break, [55,75) work, then none.
+		// [0,10) pause, [10,40) work, [40,55) break, [55,75) work, then none.
 		checks := map[int]string{
-			0:   activityWork,
+			0:   activityPause,
+			9:   activityPause,
+			10:  activityWork,
 			29:  activityWork,
-			30:  activityPause,
-			39:  activityPause,
+			30:  activityWork,
+			39:  activityWork,
 			40:  activityBreak,
 			54:  activityBreak,
 			55:  activityWork,
@@ -1018,7 +1020,7 @@ func TestBuildActualActivity(t *testing.T) {
 
 		// Day start 08:15. One completed 30m work cycle, then a running cycle
 		// that started at offset 30. Now is 60 min in. 10 min paused so far,
-		// so work = (60-30) - 10 = 20m work, then 10m pause up to now.
+		// so paused = 10m (front of block), then 20m work up to now.
 		timer := &Timer{
 			Status:   StatusRunning,
 			DayStart: "2026-05-05 08:15",
@@ -1028,14 +1030,16 @@ func TestBuildActualActivity(t *testing.T) {
 			PausedMinutes: 10,
 		}
 		activity := buildActualActivity(timer, 0, 0, normSpanMins)
-		// [0,30) work (completed), [30,50) work (current), [50,60) pause.
+		// [0,30) work (completed), [30,40) pause (current), [40,60) work (current).
 		checks := map[int]string{
 			0:  activityWork,
 			29: activityWork,
-			30: activityWork,
+			30: activityPause,
+			39: activityPause,
+			40: activityWork,
 			49: activityWork,
-			50: activityPause,
-			59: activityPause,
+			50: activityWork,
+			59: activityWork,
 			60: activityNone,
 		}
 		for idx, want := range checks {

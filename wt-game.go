@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 // ANSI color codes for terminal output
@@ -1118,10 +1120,10 @@ func buildActualActivity(timer *Timer, anchorToDayStart, windowStart, windowEnd 
 	entryStart := 0 // offset (since day start) of the current entry
 	for _, entry := range timer.Timeline {
 		if entry.Type == "work" {
-			workEnd := entryStart + entry.Minutes
-			fill(entryStart, workEnd, activityWork)
-			// Paused time rendered at the tail of the work block.
-			fill(workEnd, workEnd+entry.PausedMinutes, activityPause)
+			// Paused time rendered at the front of the work block.
+			pauseEnd := entryStart + entry.PausedMinutes
+			fill(entryStart, pauseEnd, activityPause)
+			fill(pauseEnd, pauseEnd+entry.Minutes, activityWork)
 		} else {
 			fill(entryStart, entryStart+entry.Minutes, activityBreak)
 		}
@@ -1129,6 +1131,7 @@ func buildActualActivity(timer *Timer, anchorToDayStart, windowStart, windowEnd 
 	}
 
 	// Current running/paused cycle (not yet in the timeline).
+	// Pause is rendered at the front of the block (consistent with stored entries).
 	if timer.Status == StatusRunning || timer.Status == StatusPaused {
 		now := getCurrentTime()
 		dayStart, err := parseTime(timer.DayStart)
@@ -1138,9 +1141,22 @@ func buildActualActivity(timer *Timer, anchorToDayStart, windowStart, windowEnd 
 			if work < 0 {
 				work = 0
 			}
-			workEnd := entryStart + work
-			fill(entryStart, workEnd, activityWork)
-			fill(workEnd, nowOff, activityPause)
+			paused := (nowOff - entryStart) - work
+			if paused < 0 {
+				paused = 0
+			}
+			pauseEnd := entryStart + paused
+			fill(entryStart, pauseEnd, activityPause)
+			fill(pauseEnd, pauseEnd+work, activityWork)
+		}
+	} else if timer.Status == StatusStopped && timer.StopDatetimeStr != "" {
+		// Stopped with a prior cycle: the time from the stop until now is an
+		// ongoing break, not yet recorded in the timeline.
+		now := getCurrentTime()
+		dayStart, err := parseTime(timer.DayStart)
+		if err == nil {
+			nowOff := int(now.Sub(dayStart).Minutes())
+			fill(entryStart, nowOff, activityBreak)
 		}
 	}
 
@@ -1164,18 +1180,53 @@ func activityPriority(a string) int {
 	}
 }
 
+// activityFg / activityBg map an activity to ANSI foreground / background color
+// codes used by the half-block renderer.
+func activityFg(a string) int {
+	switch a {
+	case activityWork:
+		return 32 // green
+	case activityBreak:
+		return 31 // red
+	case activityPause:
+		return 33 // yellow
+	default:
+		return 90 // bright black (dim gray) — future / unrecorded
+	}
+}
+
+func activityBg(a string) int {
+	switch a {
+	case activityWork:
+		return 42
+	case activityBreak:
+		return 41
+	case activityPause:
+		return 43
+	default:
+		return 100 // dim gray background
+	}
+}
+
+// halfBlockCell renders a single character holding two independently colored
+// sub-columns. It prints "▐" (right half block) whose foreground paints the
+// right sub-column and whose background paints the left, doubling horizontal
+// resolution so a full day fits without widening the bar.
+func halfBlockCell(left, right string) string {
+	return fmt.Sprintf("\033[%d;%dm▐\033[0m", activityFg(right), activityBg(left))
+}
+
 // renderDistributionBar renders a width-character bar over [windowStart, windowEnd)
 // anchor-offset minutes. sample(offset) returns the activity for a given anchor-offset.
-// Within a cell, the highest-priority activity wins (see activityPriority) so brief
-// breaks/pauses are never hidden by the midpoint falling on a work minute.
-// Activities map to colored block cells; activityNone renders as a dim placeholder.
+// Each character holds two sub-columns (left/right), so the effective resolution is
+// 2*width. Within a sub-column the highest-priority activity wins (see
+// activityPriority) so brief breaks/pauses are never hidden.
 func renderDistributionBar(width, windowStart, windowEnd int, sample func(offset int) string) string {
+	subCols := width * 2
 	spanMins := windowEnd - windowStart
-	var sb strings.Builder
-	sb.WriteString("[")
-	for i := 0; i < width; i++ {
-		start := windowStart + i*spanMins/width
-		end := windowStart + (i+1)*spanMins/width
+	subActivity := func(s int) string {
+		start := windowStart + s*spanMins/subCols
+		end := windowStart + (s+1)*spanMins/subCols
 		if end <= start {
 			end = start + 1
 		}
@@ -1185,19 +1236,33 @@ func renderDistributionBar(width, windowStart, windowEnd int, sample func(offset
 				cell = a
 			}
 		}
-		switch cell {
-		case activityWork:
-			sb.WriteString(colorGreen + "█" + colorReset)
-		case activityBreak:
-			sb.WriteString(colorRed + "█" + colorReset)
-		case activityPause:
-			sb.WriteString(colorYellow + "█" + colorReset)
-		default:
-			sb.WriteString(colorDim + "░" + colorReset)
-		}
+		return cell
+	}
+	var sb strings.Builder
+	sb.WriteString("[")
+	for c := 0; c < width; c++ {
+		sb.WriteString(halfBlockCell(subActivity(2*c), subActivity(2*c+1)))
 	}
 	sb.WriteString("]")
 	return sb.String()
+}
+
+// normCompactBarWidth returns the number of characters the distribution bar
+// should span so the whole row fills the terminal. Each row is an 8-char label
+// plus the "[" and "]" brackets (10 chars of chrome), so the bar gets
+// terminalWidth-10 columns. When the terminal size is unavailable (output piped,
+// not a TTY) it falls back to 93, preserving the previous fixed width.
+func normCompactBarWidth() int {
+	const fallback = 93
+	w, _, err := term.GetSize(int(os.Stdout.Fd()))
+	if err != nil || w <= 0 {
+		return fallback
+	}
+	barWidth := w - 10
+	if barWidth < 20 {
+		barWidth = 20
+	}
+	return barWidth
 }
 
 // renderTimeRuler returns a barWidth-character string with 2-digit hour labels
@@ -1215,10 +1280,17 @@ func renderTimeRuler(barWidth, windowStart, windowEnd int, anchor time.Time) str
 	anchorHourMin := anchor.Hour()*60 + anchor.Minute()
 	for h := 0; h <= 23; h++ {
 		off := h*60 - anchorHourMin // anchor-offset of h:00
-		if off < windowStart || off >= windowEnd {
+		// Include the window-end boundary (off == windowEnd) so the closing hour is
+		// labelled at the right edge.
+		if off < windowStart || off > windowEnd {
 			continue
 		}
 		pos := (off - windowStart) * barWidth / spanMins
+		// The end boundary sits at pos == barWidth; right-align its label so it fits
+		// inside the bar instead of being clipped.
+		if pos+2 > barWidth {
+			pos = barWidth - 2
+		}
 		if pos >= 0 && pos+1 < barWidth {
 			cells[pos] = byte('0' + h/10)
 			cells[pos+1] = byte('0' + h%10)
@@ -1249,28 +1321,53 @@ func normCompactCmd() error {
 	anchorToDayStart := int(dayStart.Sub(anchor).Minutes())
 	nowAnchorOff := int(now.Sub(anchor).Minutes())
 
-	// Compute dynamic window. Expand left if started before 08:15, expand right
-	// if working past 16:00. Align boundaries to 15-minute intervals.
-	windowStart := 0
-	if anchorToDayStart < 0 {
-		// Floor anchorToDayStart down to the nearest 15-min boundary.
-		windowStart = (anchorToDayStart / 15) * 15
-		if anchorToDayStart%15 != 0 {
-			windowStart -= 15
-		}
+	// Compute the dynamic window, aligned to whole-hour boundaries so every hour
+	// label (and its leading gray) is shown. Floor the start to the hour at or
+	// before the earlier of the normal start (08:15 -> shows 08:00 with ~15m gray)
+	// and the actual day start. Ceil the end to the hour at or after the later of
+	// 16:00 and the current time (so working past 16:00 expands the window right).
+	anchorHourMin := anchor.Hour()*60 + anchor.Minute()
+	floorHour := func(off int) int {
+		m := off + anchorHourMin
+		return (m/60)*60 - anchorHourMin
 	}
-	windowEnd := normSpanMins // 465 = 16:00
-	if nowAnchorOff >= normSpanMins {
-		// Ceil nowAnchorOff to the next 15-min boundary.
-		windowEnd = ((nowAnchorOff / 15) + 1) * 15
+	ceilHour := func(off int) int {
+		m := off + anchorHourMin
+		return ((m+59)/60)*60 - anchorHourMin
 	}
+	windowStart := floorHour(min(anchorToDayStart, 0))
+	windowEnd := ceilHour(max(normSpanMins, nowAnchorOff))
 	spanMins := windowEnd - windowStart
 
-	const barWidth = 93
+	// Bar width fills the terminal: each row is an 8-char label + "[" + bar + "]",
+	// so the bar gets (terminal width - 10) columns. A wider terminal yields more
+	// half-block sub-columns and therefore finer time resolution. Falls back to a
+	// fixed width when the size is unavailable (e.g. output piped, not a TTY).
+	barWidth := normCompactBarWidth()
+
+	// Snap the bar to a whole number of characters per hour so every hour spans an
+	// equal block and hour boundaries land exactly on cell edges (the start and end
+	// hour labels sit flush). This may leave a few terminal columns unused rather
+	// than stretching a partial final hour to fill the width.
+	hours := spanMins / 60
+	if hours > 0 {
+		cellsPerHour := barWidth / hours
+		if cellsPerHour < 1 {
+			cellsPerHour = 1
+		}
+		barWidth = cellsPerHour * hours
+	}
 
 	ruler := renderTimeRuler(barWidth, windowStart, windowEnd, anchor)
 
-	normalBar := renderDistributionBar(barWidth, windowStart, windowEnd, refActivityAtOffset)
+	// Normal day ends at 16:00; past that there is no reference to compare to, so
+	// render it as gray (none) rather than extending the work block.
+	normalBar := renderDistributionBar(barWidth, windowStart, windowEnd, func(o int) string {
+		if o >= normSpanMins {
+			return activityNone
+		}
+		return refActivityAtOffset(o)
+	})
 
 	activity := buildActualActivity(timer, anchorToDayStart, windowStart, windowEnd)
 	actualBar := renderDistributionBar(barWidth, windowStart, windowEnd, func(mid int) string {
@@ -1286,26 +1383,46 @@ func normCompactCmd() error {
 
 	// Compute now-cursor position. The bar cells start at column 9 in the output
 	// (8-char label + 1-char "["), so offset by that prefix.
+	// Use sub-column precision: find the first sub-column that starts after now,
+	// then convert to a cell. This aligns the cursor with the visual color boundary
+	// in the actual bar (where the half-block transitions from colored to gray).
 	nowBarPos := 0
 	if spanMins > 0 {
-		nowBarPos = (nowAnchorOff - windowStart) * barWidth / spanMins
+		subCols := barWidth * 2
+		firstGraySubCol := (nowAnchorOff + 1 - windowStart) * subCols / spanMins
+		nowBarPos = firstGraySubCol / 2
 	}
 	if nowBarPos < 0 {
 		nowBarPos = 0
 	} else if nowBarPos >= barWidth {
 		nowBarPos = barWidth - 1
 	}
-	cursorLine := strings.Repeat(" ", 9+nowBarPos) + colorDim + "^ " + now.Format("15:04") + colorReset
+
+	// Norm diff: how many minutes ahead (+) or behind (-) normal at this point.
+	actualWork := timer.CompletedMinutes() + calculateCurrentMinutes(timer)
+	if actualWork < 0 {
+		actualWork = 0
+	}
+	expectedWork := refWorkAtOffset(nowAnchorOff)
+	diffMins := actualWork - expectedWork
+	var diffStr string
+	if diffMins >= 0 {
+		diffStr = fmt.Sprintf("  %s+%dm%s", colorGreen, diffMins, colorReset)
+	} else {
+		diffStr = fmt.Sprintf("  %s%dm%s", colorRed, diffMins, colorReset)
+	}
+
+	cursorLine := strings.Repeat(" ", 9+nowBarPos) + colorDim + "^ " + now.Format("15:04") + colorReset + diffStr
 
 	fmt.Printf("         %s\n", ruler)
 	fmt.Printf("Normal  %s\n", normalBar)
 	fmt.Printf("Actual  %s\n", actualBar)
 	fmt.Println(cursorLine)
-	fmt.Printf("\n%s█%s work  %s█%s break  %s█%s pause  %s░ future%s\n",
+	fmt.Printf("\n%s█%s work  %s█%s break  %s█%s pause  %s█%s future\n",
 		colorGreen, colorReset,
 		colorRed, colorReset,
 		colorYellow, colorReset,
-		colorDim, colorReset)
+		"\033[90m", colorReset)
 
 	return nil
 }
