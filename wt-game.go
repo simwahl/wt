@@ -1040,10 +1040,10 @@ func printNormRow(label string, refOffset int, actualOffset int, timer *Timer, i
 	if diff == 0 {
 		diffStr = "  -"
 	} else if diff > 0 {
-		// Behind: worked more than normal means... actually ahead
-		// Positive diff = actual > normal = ahead of schedule
+		// actual > normal: ahead of schedule — green, minus sign (can leave early)
 		diffStr = fmt.Sprintf("%s-%s%s", colorGreen, minutesToDayHourMinuteStr(diff), colorReset)
 	} else {
+		// actual < normal: behind schedule — plus sign (need to work more)
 		diffStr = fmt.Sprintf("%s+%s%s", colorRed, minutesToDayHourMinuteStr(-diff), colorReset)
 	}
 
@@ -1412,10 +1412,14 @@ func normCompactCmd() error {
 	expectedWork := refWorkAtOffset(nowAnchorOff)
 	diffMins := actualWork - expectedWork
 	var diffStr string
-	if diffMins >= 0 {
-		diffStr = fmt.Sprintf("  %s+%dm%s", colorGreen, diffMins, colorReset)
+	if diffMins > 0 {
+		// ahead of schedule: minus sign, green
+		diffStr = fmt.Sprintf("  %s-%dm%s", colorGreen, diffMins, colorReset)
+	} else if diffMins == 0 {
+		diffStr = "  -"
 	} else {
-		diffStr = fmt.Sprintf("  %s%dm%s", colorRed, diffMins, colorReset)
+		// behind schedule: plus sign, red
+		diffStr = fmt.Sprintf("  %s+%dm%s", colorRed, -diffMins, colorReset)
 	}
 
 	cursorLine := strings.Repeat(" ", 9+nowBarPos) + colorDim + "^ " + now.Format("15:04") + colorReset + diffStr
