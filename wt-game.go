@@ -1120,10 +1120,13 @@ func buildActualActivity(timer *Timer, anchorToDayStart, windowStart, windowEnd 
 	entryStart := 0 // offset (since day start) of the current entry
 	for _, entry := range timer.Timeline {
 		if entry.Type == "work" {
-			// Paused time rendered at the front of the work block.
-			pauseEnd := entryStart + entry.PausedMinutes
-			fill(entryStart, pauseEnd, activityPause)
-			fill(pauseEnd, pauseEnd+entry.Minutes, activityWork)
+			// Pause rendered in the middle of the work block: first half work,
+			// then pause, then second half work.
+			firstHalf := entry.Minutes / 2
+			secondHalf := entry.Minutes - firstHalf
+			fill(entryStart, entryStart+firstHalf, activityWork)
+			fill(entryStart+firstHalf, entryStart+firstHalf+entry.PausedMinutes, activityPause)
+			fill(entryStart+firstHalf+entry.PausedMinutes, entryStart+firstHalf+entry.PausedMinutes+secondHalf, activityWork)
 		} else {
 			fill(entryStart, entryStart+entry.Minutes, activityBreak)
 		}
@@ -1145,9 +1148,12 @@ func buildActualActivity(timer *Timer, anchorToDayStart, windowStart, windowEnd 
 			if paused < 0 {
 				paused = 0
 			}
-			pauseEnd := entryStart + paused
-			fill(entryStart, pauseEnd, activityPause)
-			fill(pauseEnd, pauseEnd+work, activityWork)
+			// Pause in the middle of the current cycle.
+			firstHalf := work / 2
+			secondHalf := work - firstHalf
+			fill(entryStart, entryStart+firstHalf, activityWork)
+			fill(entryStart+firstHalf, entryStart+firstHalf+paused, activityPause)
+			fill(entryStart+firstHalf+paused, entryStart+firstHalf+paused+secondHalf, activityWork)
 		}
 	} else if timer.Status == StatusStopped && timer.StopDatetimeStr != "" {
 		// Stopped with a prior cycle: the time from the stop until now is an
