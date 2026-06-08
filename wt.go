@@ -470,10 +470,18 @@ func main() {
 						Aliases: []string{"e"},
 						Usage:   "Print the reference day as a wt log example (start 08:15)",
 					},
+					&cli.BoolFlag{
+						Name:    "compact",
+						Aliases: []string{"c"},
+						Usage:   "Show two stacked work/break/pause distribution bars (08:15-16:00)",
+					},
 				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					if cmd.Bool("example") {
 						return normExampleCmd()
+					}
+					if cmd.Bool("compact") {
+						return normCompactCmd()
 					}
 					return normCmd()
 				},

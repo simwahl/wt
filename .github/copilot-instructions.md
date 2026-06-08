@@ -106,7 +106,15 @@ The current cycle start time is always **calculated** via `timer.CurrentCycleSta
 ### Build and Run Policy
 Do not manually build and run `.out/wt` during agent verification.
 
-For manual verification, always run commands through `./wt-manual.sh` so all state paths are isolated.
+For manual verification, always run commands through the `wt-sandbox` wrapper so all state paths are isolated. `wt-sandbox` is a shell alias for `./wt-sandbox.sh`.
+
+**The alias is required. Never run the wrapper without it (do not fall back to `./wt-sandbox.sh`).** If the `wt-sandbox` alias is not available, stop and tell the user to add it to their shell config:
+
+```bash
+alias wt-sandbox="$HOME/Documents/code/wt/wt-sandbox.sh"
+```
+
+After the user sets the alias (and reloads their shell), retry the `wt-sandbox` command.
 
 ### Running Tests
 ```bash
@@ -120,46 +128,31 @@ Tests use snapshot testing (exact output matching) with `$WT_MOCK_TIME` for dete
 
 ### Manual Testing
 
-**IMPORTANT: ALWAYS use `./wt-manual.sh` for manual testing.** Never run `.out/wt` directly or with only `WT_ROOT` set — that leaks writes to real files (work log, flex balance, game state).
+**IMPORTANT: ALWAYS use the `wt-sandbox` alias for manual testing.** Never run `.out/wt` directly, never call `./wt-sandbox.sh` directly, and never run with only `WT_ROOT` set — that leaks writes to real files (work log, flex balance, game state). If the `wt-sandbox` alias does not exist, tell the user to set it (see Build and Run Policy) instead of running any fallback.
 
 ```bash
-./wt-manual.sh <wt-command> [args]
+wt-sandbox <wt-command> [args]
 ```
 
-To use mock time:
+To use mock time, pass the leading `--at` flag (preferred — keeps the command starting with `wt-sandbox` so it is easy to auto-approve):
 
 ```bash
-WT_MOCK_TIME="2026-01-20 09:00" ./wt-manual.sh start
+wt-sandbox --at "2026-01-20 09:00" start
+```
+
+Setting `WT_MOCK_TIME` inline still works as an alternative:
+
+```bash
+WT_MOCK_TIME="2026-01-20 09:00" wt-sandbox start
 ```
 
 This wrapper isolates ALL state paths:
-- `WT_ROOT=/tmp/wt-manual-$USER`
-- `WT_GAME_PATH=/tmp/wt-manual-$USER/wtg.json`
-- `WT_REPORT_FILE=/tmp/wt-manual-$USER/daily-reports`
-- `WT_FLEX_FILE=/tmp/wt-manual-$USER/Flex.md`
+- `WT_ROOT=/tmp/wt-sandbox-$USER`
+- `WT_GAME_PATH=/tmp/wt-sandbox-$USER/wtg.json`
+- `WT_REPORT_FILE=/tmp/wt-sandbox-$USER/daily-reports`
+- `WT_FLEX_FILE=/tmp/wt-sandbox-$USER/Flex.md`
 
 So manual experiments never touch real timer data, work log, flex balance, or game data.
-
-**Important**: Use the isolated test environment script to avoid polluting your real work log with test data.
-
-```bash
-./test-manual.sh [scenario]
-```
-
-The `test-manual.sh` script provides safe, isolated testing with 5 built-in scenarios:
-- **`basic`** - Timer operations: new, start, pause, resume, stop, check
-- **`game`** - Game state transitions: quests activation, level-ups, streaks, achievements
-- **`break-time`** - Break budgeting command variations: `wt bt` with different targets and --total flags
-- **`full-day`** - Realistic workday simulation: start 08:15, work/break cycles, lunch skip/move, finish near 16:30 target
-- **`interactive`** - Interactive shell in isolated environment for manual exploration
-
-Each scenario:
-1. Creates an isolated `/tmp/wt-manual-$$` environment (doesn't affect real `$WT_ROOT` or `~/Documents/wtg.json`)
-2. Builds the current binary
-3. Runs the test sequence
-4. Prints results and cleanup instructions
-
-Example: `./test-manual.sh full-day` runs a complete workday simulation.
 
 **Why isolation matters**: Test data lives in a temporary directory that can be safely cleaned up afterward, preventing duplicate entries in your actual work log when experimenting with commands.
 
@@ -171,7 +164,7 @@ Example: `./test-manual.sh full-day` runs a complete workday simulation.
 3. Call `logDebug()` for command logging
 4. Call `save(timer)` after state changes
 5. Use `printMessageIfNotSilent()` for user feedback
-6. Add test case in `wt-test.sh`
+6. Add test case in `e2e.sh`
 
 ### Modifying Timeline Logic
 When changing how cycles are recorded/modified:

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# wt Integration Test Script - Snapshot Testing
+# wt E2E Test Script - Snapshot Testing
 # Tests scenarios by comparing actual output to expected output
 
 set -e
@@ -75,7 +75,7 @@ setup_test() {
 }
 
 echo "=========================================="
-echo "WT Integration Test Suite (Snapshot Testing)"
+echo "WT E2E Test Suite (Snapshot Testing)"
 echo "=========================================="
 echo ""
 echo "Test directory: $WT_ROOT"
@@ -1492,8 +1492,8 @@ echo "=========================================="
 echo "Test Results"
 echo "=========================================="
 echo -e "${GREEN}✓ Unit tests passed${NC}"
-echo "Integration tests run: $TESTS_RUN"
-echo "Integration tests passed: $TESTS_PASSED"
+echo "E2E tests run: $TESTS_RUN"
+echo "E2E tests passed: $TESTS_PASSED"
 
 if [ $TESTS_RUN -eq $TESTS_PASSED ]; then
     echo -e "${GREEN}All tests passed!${NC}"

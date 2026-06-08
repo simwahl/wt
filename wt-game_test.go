@@ -921,6 +921,131 @@ func TestCalculateChain(t *testing.T) {
 	})
 }
 
+func TestRefActivityAtOffset(t *testing.T) {
+	tests := []struct {
+		name   string
+		offset int
+		want   string
+	}{
+		{"before start", -1, activityNone},
+		{"day start is work", 0, activityWork},
+		{"mid first work block", 30, activityWork},
+		{"end of first work block still work", 44, activityWork},
+		{"start of first break", 45, activityBreak},
+		{"mid first break", 55, activityBreak},
+		{"end of first break still break", 64, activityBreak},
+		{"second work block", 65, activityWork},
+		{"just before finish is work", 464, activityWork},
+		{"finish offset is work", 465, activityWork},
+		{"beyond finish extends work", 600, activityWork},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := refActivityAtOffset(tt.offset)
+			if got != tt.want {
+				t.Errorf("refActivityAtOffset(%d) = %q, want %q", tt.offset, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildActualActivity(t *testing.T) {
+	t.Run("on-time start with work, pause, break", func(t *testing.T) {
+		// Day starts at the anchor (08:15), so anchorToDayStart = 0.
+		// Timeline: 30m work + 10m paused, then 15m break, then 20m work.
+		timer := &Timer{
+			Status:   StatusStopped,
+			DayStart: "2026-05-05 08:15",
+			Timeline: []TimelineEntry{
+				{Type: "work", Minutes: 30, PausedMinutes: 10},
+				{Type: "break", Minutes: 15},
+				{Type: "work", Minutes: 20},
+			},
+		}
+		activity := buildActualActivity(timer, 0, 0, normSpanMins)
+
+		if len(activity) != normSpanMins {
+			t.Fatalf("len = %d, want %d", len(activity), normSpanMins)
+		}
+		// [0,30) work, [30,40) pause, [40,55) break, [55,75) work, then none.
+		checks := map[int]string{
+			0:   activityWork,
+			29:  activityWork,
+			30:  activityPause,
+			39:  activityPause,
+			40:  activityBreak,
+			54:  activityBreak,
+			55:  activityWork,
+			74:  activityWork,
+			75:  activityNone,
+			200: activityNone,
+		}
+		for idx, want := range checks {
+			if activity[idx] != want {
+				t.Errorf("activity[%d] = %q, want %q", idx, activity[idx], want)
+			}
+		}
+	})
+
+	t.Run("late start leaves pre-start as none", func(t *testing.T) {
+		// Day starts at 08:45 -> anchorToDayStart = 30.
+		timer := &Timer{
+			Status:   StatusStopped,
+			DayStart: "2026-05-05 08:45",
+			Timeline: []TimelineEntry{
+				{Type: "work", Minutes: 20},
+			},
+		}
+		activity := buildActualActivity(timer, 30, 0, normSpanMins)
+		// Minutes 0..29 (08:15-08:45) are before day start -> none.
+		for i := 0; i < 30; i++ {
+			if activity[i] != activityNone {
+				t.Errorf("activity[%d] = %q, want none (pre-start)", i, activity[i])
+			}
+		}
+		// Minutes 30..49 are the 20m work block.
+		if activity[30] != activityWork || activity[49] != activityWork {
+			t.Errorf("expected work at anchor offsets 30 and 49")
+		}
+		if activity[50] != activityNone {
+			t.Errorf("activity[50] = %q, want none", activity[50])
+		}
+	})
+
+	t.Run("running cycle fills work then pause up to now", func(t *testing.T) {
+		os.Setenv("WT_MOCK_TIME", "2026-05-05 09:15")
+		defer os.Unsetenv("WT_MOCK_TIME")
+
+		// Day start 08:15. One completed 30m work cycle, then a running cycle
+		// that started at offset 30. Now is 60 min in. 10 min paused so far,
+		// so work = (60-30) - 10 = 20m work, then 10m pause up to now.
+		timer := &Timer{
+			Status:   StatusRunning,
+			DayStart: "2026-05-05 08:15",
+			Timeline: []TimelineEntry{
+				{Type: "work", Minutes: 30},
+			},
+			PausedMinutes: 10,
+		}
+		activity := buildActualActivity(timer, 0, 0, normSpanMins)
+		// [0,30) work (completed), [30,50) work (current), [50,60) pause.
+		checks := map[int]string{
+			0:  activityWork,
+			29: activityWork,
+			30: activityWork,
+			49: activityWork,
+			50: activityPause,
+			59: activityPause,
+			60: activityNone,
+		}
+		for idx, want := range checks {
+			if activity[idx] != want {
+				t.Errorf("activity[%d] = %q, want %q", idx, activity[idx], want)
+			}
+		}
+	})
+}
+
 // ----------------------------------------------------------------------------
 // helpers
 // ----------------------------------------------------------------------------

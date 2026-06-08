@@ -210,3 +210,19 @@ This displays:
 - Day crossing indicator (if you worked past midnight)
 
 Example: `2026-01-20 | 09:00 -> 17:30 | Work: 7h:30m | Break: 0h:45m | Paused: 0h:15m | Total: 8h:30m`
+
+Compare your day against a reference work day (08:15–16:00):
+
+```bash
+wt norm        # Hour-by-hour table of expected vs actual work, with +/- diffs
+wt norm -e     # Print the reference day as a wt log example
+wt norm -c     # Compact view: two stacked work/break/pause distribution bars
+```
+
+The compact view (`-c` / `--compact`) shows two bars spanning 08:15–16:00:
+
+- **Normal** — the reference day, always fully filled
+- **Actual** — your day, colored up to the current time and dim (`░`) beyond it
+
+Colors indicate the distribution of time: green = work, red = break, yellow = pause.
+

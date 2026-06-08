@@ -137,6 +137,11 @@ type DailyQuest struct {
 	RewardPct    float64 // XP reward as fraction of current level requirement
 }
 
+// formatFlexHours formats a flex balance as e.g. "+1.5h", "-2h", "0h".
+func formatFlexHours(val float64) string {
+	return formatFlexBalance(val) + "h"
+}
+
 // generateDailyQuest produces a deterministic quest for a given date string ("2006-01-02").
 func generateDailyQuest(date string) DailyQuest {
 	h := sha256.Sum256([]byte("wt-quest-" + date))
@@ -1048,6 +1053,263 @@ func printNormRow(label string, refOffset int, actualOffset int, timer *Timer, i
 	fmt.Printf("%-9s %8s %8s %8s%s\n", label, normalStr, actualStr, diffStr, marker)
 }
 
+// Activity kinds used by the compact distribution bars.
+const (
+	activityNone  = "none"
+	activityWork  = "work"
+	activityBreak = "break"
+	activityPause = "pause"
+)
+
+// normSpanMins is the reference day end in minutes from the anchor (08:15 → 16:00).
+// Used as the default bar window end; the bar may expand beyond this dynamically.
+const normSpanMins = 465
+
+// refActivityAtOffset returns the reference-day activity ("work" or "break")
+// at the given offset (minutes since reference day start, 08:15). Offsets at or
+// beyond the reference finish (465) are treated as work (extended work day).
+func refActivityAtOffset(offsetMins int) string {
+	if offsetMins < 0 {
+		return activityNone
+	}
+	last := referenceDay[len(referenceDay)-1]
+	if offsetMins >= last.offsetMins {
+		return activityWork
+	}
+	for i := 1; i < len(referenceDay); i++ {
+		prev := referenceDay[i-1]
+		curr := referenceDay[i]
+		if offsetMins < curr.offsetMins {
+			if curr.cumulativeWork > prev.cumulativeWork {
+				return activityWork
+			}
+			return activityBreak
+		}
+	}
+	return activityWork
+}
+
+// buildActualActivity builds a per-minute activity map over [windowStart, windowEnd)
+// anchor-offset minutes. The returned slice has length (windowEnd - windowStart),
+// indexed by i = (anchorOffset - windowStart). Each entry is one of the activity*
+// constants. Minutes before the timer's day start (or otherwise unrecorded) remain
+// activityNone.
+//
+// anchorToDayStart is the offset (in minutes) of the timer's day start relative to
+// the anchor (08:15); e.g. a day start of 08:45 yields +30, 08:00 yields -15.
+func buildActualActivity(timer *Timer, anchorToDayStart, windowStart, windowEnd int) []string {
+	size := windowEnd - windowStart
+	activity := make([]string, size)
+	for i := range activity {
+		activity[i] = activityNone
+	}
+
+	fill := func(fromDayOff, toDayOff int, kind string) {
+		for d := fromDayOff; d < toDayOff; d++ {
+			a := anchorToDayStart + d // convert day-start offset to anchor offset
+			i := a - windowStart      // convert to slice index
+			if i < 0 || i >= size {
+				continue
+			}
+			activity[i] = kind
+		}
+	}
+
+	entryStart := 0 // offset (since day start) of the current entry
+	for _, entry := range timer.Timeline {
+		if entry.Type == "work" {
+			workEnd := entryStart + entry.Minutes
+			fill(entryStart, workEnd, activityWork)
+			// Paused time rendered at the tail of the work block.
+			fill(workEnd, workEnd+entry.PausedMinutes, activityPause)
+		} else {
+			fill(entryStart, entryStart+entry.Minutes, activityBreak)
+		}
+		entryStart += entry.Duration()
+	}
+
+	// Current running/paused cycle (not yet in the timeline).
+	if timer.Status == StatusRunning || timer.Status == StatusPaused {
+		now := getCurrentTime()
+		dayStart, err := parseTime(timer.DayStart)
+		if err == nil {
+			nowOff := int(now.Sub(dayStart).Minutes())
+			work := calculateCurrentMinutes(timer)
+			if work < 0 {
+				work = 0
+			}
+			workEnd := entryStart + work
+			fill(entryStart, workEnd, activityWork)
+			fill(workEnd, nowOff, activityPause)
+		}
+	}
+
+	return activity
+}
+
+// activityPriority ranks activities so that, when a single bar cell spans
+// several minutes of mixed activity, short interruptions stay visible. Pause
+// and break outrank work, so even a 1-minute break shows up in its cell rather
+// than being averaged away. None ranks lowest (future / unrecorded time).
+func activityPriority(a string) int {
+	switch a {
+	case activityPause:
+		return 3
+	case activityBreak:
+		return 2
+	case activityWork:
+		return 1
+	default:
+		return 0
+	}
+}
+
+// renderDistributionBar renders a width-character bar over [windowStart, windowEnd)
+// anchor-offset minutes. sample(offset) returns the activity for a given anchor-offset.
+// Within a cell, the highest-priority activity wins (see activityPriority) so brief
+// breaks/pauses are never hidden by the midpoint falling on a work minute.
+// Activities map to colored block cells; activityNone renders as a dim placeholder.
+func renderDistributionBar(width, windowStart, windowEnd int, sample func(offset int) string) string {
+	spanMins := windowEnd - windowStart
+	var sb strings.Builder
+	sb.WriteString("[")
+	for i := 0; i < width; i++ {
+		start := windowStart + i*spanMins/width
+		end := windowStart + (i+1)*spanMins/width
+		if end <= start {
+			end = start + 1
+		}
+		cell := activityNone
+		for m := start; m < end; m++ {
+			if a := sample(m); activityPriority(a) > activityPriority(cell) {
+				cell = a
+			}
+		}
+		switch cell {
+		case activityWork:
+			sb.WriteString(colorGreen + "█" + colorReset)
+		case activityBreak:
+			sb.WriteString(colorRed + "█" + colorReset)
+		case activityPause:
+			sb.WriteString(colorYellow + "█" + colorReset)
+		default:
+			sb.WriteString(colorDim + "░" + colorReset)
+		}
+	}
+	sb.WriteString("]")
+	return sb.String()
+}
+
+// renderTimeRuler returns a barWidth-character string with 2-digit hour labels
+// placed at the bar positions corresponding to each full clock hour within
+// [windowStart, windowEnd). anchor is the reference start time (08:15).
+func renderTimeRuler(barWidth, windowStart, windowEnd int, anchor time.Time) string {
+	spanMins := windowEnd - windowStart
+	if spanMins <= 0 {
+		return strings.Repeat(" ", barWidth)
+	}
+	cells := make([]byte, barWidth)
+	for i := range cells {
+		cells[i] = ' '
+	}
+	anchorHourMin := anchor.Hour()*60 + anchor.Minute()
+	for h := 0; h <= 23; h++ {
+		off := h*60 - anchorHourMin // anchor-offset of h:00
+		if off < windowStart || off >= windowEnd {
+			continue
+		}
+		pos := (off - windowStart) * barWidth / spanMins
+		if pos >= 0 && pos+1 < barWidth {
+			cells[pos] = byte('0' + h/10)
+			cells[pos+1] = byte('0' + h%10)
+		}
+	}
+	return string(cells)
+}
+
+// normCompactCmd renders two stacked distribution bars over a dynamic window that
+// always covers the full actual day: expanded left if started before 08:15 and
+// expanded right if working past 16:00. A time ruler and a now-cursor are shown.
+func normCompactCmd() error {
+	timer, err := load()
+	if err != nil {
+		return err
+	}
+	if timer == nil || timer.DayStart == "" {
+		return fmt.Errorf("no active timer — run 'wt new' first")
+	}
+
+	now := getCurrentTime()
+	dayStart, err := parseTime(timer.DayStart)
+	if err != nil {
+		return fmt.Errorf("could not parse day start: %w", err)
+	}
+
+	anchor := refAnchorTime(now)
+	anchorToDayStart := int(dayStart.Sub(anchor).Minutes())
+	nowAnchorOff := int(now.Sub(anchor).Minutes())
+
+	// Compute dynamic window. Expand left if started before 08:15, expand right
+	// if working past 16:00. Align boundaries to 15-minute intervals.
+	windowStart := 0
+	if anchorToDayStart < 0 {
+		// Floor anchorToDayStart down to the nearest 15-min boundary.
+		windowStart = (anchorToDayStart / 15) * 15
+		if anchorToDayStart%15 != 0 {
+			windowStart -= 15
+		}
+	}
+	windowEnd := normSpanMins // 465 = 16:00
+	if nowAnchorOff >= normSpanMins {
+		// Ceil nowAnchorOff to the next 15-min boundary.
+		windowEnd = ((nowAnchorOff / 15) + 1) * 15
+	}
+	spanMins := windowEnd - windowStart
+
+	const barWidth = 93
+
+	ruler := renderTimeRuler(barWidth, windowStart, windowEnd, anchor)
+
+	normalBar := renderDistributionBar(barWidth, windowStart, windowEnd, refActivityAtOffset)
+
+	activity := buildActualActivity(timer, anchorToDayStart, windowStart, windowEnd)
+	actualBar := renderDistributionBar(barWidth, windowStart, windowEnd, func(mid int) string {
+		if mid > nowAnchorOff {
+			return activityNone // future — not yet reached
+		}
+		i := mid - windowStart
+		if i < 0 || i >= len(activity) {
+			return activityNone
+		}
+		return activity[i]
+	})
+
+	// Compute now-cursor position. The bar cells start at column 9 in the output
+	// (8-char label + 1-char "["), so offset by that prefix.
+	nowBarPos := 0
+	if spanMins > 0 {
+		nowBarPos = (nowAnchorOff - windowStart) * barWidth / spanMins
+	}
+	if nowBarPos < 0 {
+		nowBarPos = 0
+	} else if nowBarPos >= barWidth {
+		nowBarPos = barWidth - 1
+	}
+	cursorLine := strings.Repeat(" ", 9+nowBarPos) + colorDim + "^ " + now.Format("15:04") + colorReset
+
+	fmt.Printf("         %s\n", ruler)
+	fmt.Printf("Normal  %s\n", normalBar)
+	fmt.Printf("Actual  %s\n", actualBar)
+	fmt.Println(cursorLine)
+	fmt.Printf("\n%s█%s work  %s█%s break  %s█%s pause  %s░ future%s\n",
+		colorGreen, colorReset,
+		colorRed, colorReset,
+		colorYellow, colorReset,
+		colorDim, colorReset)
+
+	return nil
+}
+
 // etaCmd prints the ETA for completing a given work target (in decimal hours).
 func etaCmd(targetHours float64, showBreakTime bool) error {
 	timer, err := load()
@@ -1293,6 +1555,18 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 			if breakInETA > 0 {
 				sb.WriteString(fmt.Sprintf("  %sBreak time:  %s%s\n", colorDim, minutesToDayHourMinuteStr(breakInETA), colorReset))
 			}
+		}
+	}
+
+	// Flex balance
+	if flexPath, err := flexFilePath(); err == nil {
+		if flexBalance, _, err := readFlexFile(flexPath); err == nil {
+			flexStr := formatFlexHours(flexBalance)
+			flexColor := colorBold + colorGreen
+			if flexBalance < 0 {
+				flexColor = colorRed
+			}
+			sb.WriteString(fmt.Sprintf("\n  Flex: %s%s%s\n", flexColor, flexStr, colorReset))
 		}
 	}
 

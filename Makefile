@@ -7,7 +7,7 @@ test:
 	@go test ./...
 	@echo "\033[0;32m✓ Unit tests passed\033[0m"
 	@echo ""
-	@echo "Running integration tests..."
+	@echo "Running E2E tests..."
 	@echo ""
 	@echo "Building Go binary..."
 	@mkdir -p .out
@@ -17,7 +17,7 @@ test:
 	@export WT_ROOT=$(TEST_DIR) && \
 		export WT_CMD="./.out/wt" && \
 		export WT_SKIP_PROMPTS=1 && \
-		./wt-test.sh; \
+		./e2e.sh; \
 		TEST_EXIT=$$?; \
 		rm -rf $(TEST_DIR); \
 		exit $$TEST_EXIT
