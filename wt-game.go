@@ -1387,11 +1387,27 @@ func normCompactCmd() error {
 		return activity[i]
 	})
 
-	// Compute now-cursor position. The bar cells start at column 9 in the output
-	// (8-char label + 1-char "["), so offset by that prefix.
-	// Use sub-column precision: find the first sub-column that starts after now,
-	// then convert to a cell. This aligns the cursor with the visual color boundary
-	// in the actual bar (where the half-block transitions from colored to gray).
+	// Norm diff: how many minutes ahead (+) or behind (-) normal at this point.
+	actualWork := timer.CompletedMinutes() + calculateCurrentMinutes(timer)
+	if actualWork < 0 {
+		actualWork = 0
+	}
+	expectedWork := refWorkAtOffset(nowAnchorOff)
+	diffMins := actualWork - expectedWork
+	var diffColored string
+	if diffMins > 0 {
+		// ahead of schedule: minus sign, green
+		diffColored = fmt.Sprintf("%s-%dm%s", colorGreen, diffMins, colorReset)
+	} else if diffMins == 0 {
+		diffColored = colorDim + "-" + colorReset
+	} else {
+		// behind schedule: plus sign, red
+		diffColored = fmt.Sprintf("%s+%dm%s", colorRed, -diffMins, colorReset)
+	}
+
+	// Align the diff under the current-time position in the bar. The bar cells start
+	// at column 9 (8-char label + 1-char "["). Use sub-column precision to match the
+	// color boundary in the actual bar.
 	nowBarPos := 0
 	if spanMins > 0 {
 		subCols := barWidth * 2
@@ -1403,31 +1419,12 @@ func normCompactCmd() error {
 	} else if nowBarPos >= barWidth {
 		nowBarPos = barWidth - 1
 	}
-
-	// Norm diff: how many minutes ahead (+) or behind (-) normal at this point.
-	actualWork := timer.CompletedMinutes() + calculateCurrentMinutes(timer)
-	if actualWork < 0 {
-		actualWork = 0
-	}
-	expectedWork := refWorkAtOffset(nowAnchorOff)
-	diffMins := actualWork - expectedWork
-	var diffStr string
-	if diffMins > 0 {
-		// ahead of schedule: minus sign, green
-		diffStr = fmt.Sprintf("  %s-%dm%s", colorGreen, diffMins, colorReset)
-	} else if diffMins == 0 {
-		diffStr = "  -"
-	} else {
-		// behind schedule: plus sign, red
-		diffStr = fmt.Sprintf("  %s+%dm%s", colorRed, -diffMins, colorReset)
-	}
-
-	cursorLine := strings.Repeat(" ", 9+nowBarPos) + colorDim + "^ " + now.Format("15:04") + colorReset + diffStr
+	diffLine := strings.Repeat(" ", 9+nowBarPos) + diffColored
 
 	fmt.Printf("         %s\n", ruler)
 	fmt.Printf("Normal  %s\n", normalBar)
 	fmt.Printf("Actual  %s\n", actualBar)
-	fmt.Println(cursorLine)
+	fmt.Println(diffLine)
 	fmt.Printf("\n%s█%s work  %s█%s break  %s█%s pause  %s█%s future\n",
 		colorGreen, colorReset,
 		colorRed, colorReset,
