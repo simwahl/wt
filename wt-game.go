@@ -795,36 +795,62 @@ func refAnchorTime(now time.Time) time.Time {
 }
 
 // referenceDay is a static model of a standard productive work day.
-// Offsets are minutes since reference day start (08:15).
+// Offsets are minutes since reference day start (08:15). Some work blocks include
+// a short in-cycle pause (elapsed time beyond the work minutes) so the day spans
+// 08:15-16:30 while total work stays 5h:30m.
 //
-// 01. [+000 => +045] Work: 0h:45m  (0h:45m)
+// 01. [+000 => +045] Work: 0h:45m               (0h:45m)
 // 02. [+045 => +065] Break: 0h:20m
-// 03. [+065 => +140] Work: 1h:15m  (2h:00m)
-// 04. [+140 => +150] Break: 0h:10m
-// 05. [+150 => +180] Work: 0h:30m  (2h:30m)
-// 06. [+180 => +240] Break: 1h:00m
-// 07. [+240 => +290] Work: 0h:50m  (3h:20m)
-// 08. [+290 => +305] Break: 0h:15m
-// 09. [+305 => +355] Work: 0h:50m  (4h:10m)
-// 10. [+355 => +370] Break: 0h:15m
-// 11. [+370 => +420] Work: 0h:50m  (5h:00m)
-// 12. [+420 => +435] Break: 0h:15m
-// 13. [+435 => +465] Work: 0h:30m  (5h:30m)  ← reference finishes at offset 465
+// 03. [+065 => +105] Work: 0h:40m               (1h:25m)
+// 04. [+105 => +115] Break: 0h:10m
+// 05. [+115 => +180] Work: 1h:00m +5m pause      (2h:25m)
+// 06. [+180 => +240] Break: 1h:00m               (lunch)
+// 07. [+240 => +285] Work: 0h:40m +5m pause      (3h:05m)
+// 08. [+285 => +300] Break: 0h:15m
+// 09. [+300 => +340] Work: 0h:35m +5m pause      (3h:40m)
+// 10. [+340 => +355] Break: 0h:15m
+// 11. [+355 => +400] Work: 0h:40m +5m pause      (4h:20m)
+// 12. [+400 => +410] Break: 0h:10m
+// 13. [+410 => +440] Work: 0h:30m                (4h:50m)
+// 14. [+440 => +455] Break: 0h:15m
+// 15. [+455 => +495] Work: 0h:40m                (5h:30m)  ← reference finishes at offset 495
 var referenceDay = []refEntry{
 	{0, 0},
 	{45, 45},
 	{65, 45},
-	{140, 120},
-	{150, 120},
-	{180, 150},
-	{240, 150},
-	{290, 200},
-	{305, 200},
-	{355, 250},
-	{370, 250},
-	{420, 300},
-	{435, 300},
-	{465, 330},
+	{105, 85},
+	{115, 85},
+	{180, 145},
+	{240, 145},
+	{285, 185},
+	{300, 185},
+	{340, 220},
+	{355, 220},
+	{400, 260},
+	{410, 260},
+	{440, 290},
+	{455, 290},
+	{495, 330},
+}
+
+// refPauseWindow marks a short in-cycle pause within a reference work block,
+// as [start, end) offsets from reference day start. Centered in the middle of
+// the block (first half work, then pause, then second half work) to match how
+// buildActualActivity renders pauses for real timeline entries. Used only by
+// refActivityAtOffset to render the pause (yellow) segment in the compact bar;
+// refWorkAtOffset/refOffsetForWork still treat the whole block linearly.
+type refPauseWindow struct {
+	start int
+	end   int
+}
+
+// referenceDayPauses lists the 5m pauses centered within blocks 05, 07, 09, 11
+// (see referenceDay comment above): work minutes / 2 in, then the pause.
+var referenceDayPauses = []refPauseWindow{
+	{145, 150}, // block 05: 115 + 60/2
+	{260, 265}, // block 07: 240 + 40/2
+	{317, 322}, // block 09: 300 + 35/2
+	{375, 380}, // block 11: 355 + 40/2
 }
 
 // refWorkAtOffset returns the cumulative work minutes the reference day had accumulated
@@ -1063,16 +1089,22 @@ const (
 	activityPause = "pause"
 )
 
-// normSpanMins is the reference day end in minutes from the anchor (08:15 → 16:00).
+// normSpanMins is the reference day end in minutes from the anchor (08:15 → 16:30).
 // Used as the default bar window end; the bar may expand beyond this dynamically.
-const normSpanMins = 465
+const normSpanMins = 495
 
-// refActivityAtOffset returns the reference-day activity ("work" or "break")
-// at the given offset (minutes since reference day start, 08:15). Offsets at or
-// beyond the reference finish (465) are treated as work (extended work day).
+// refActivityAtOffset returns the reference-day activity ("work", "break", or
+// "pause") at the given offset (minutes since reference day start, 08:15).
+// Offsets at or beyond the reference finish (495) are treated as work
+// (extended work day).
 func refActivityAtOffset(offsetMins int) string {
 	if offsetMins < 0 {
 		return activityNone
+	}
+	for _, p := range referenceDayPauses {
+		if offsetMins >= p.start && offsetMins < p.end {
+			return activityPause
+		}
 	}
 	last := referenceDay[len(referenceDay)-1]
 	if offsetMins >= last.offsetMins {
@@ -1307,7 +1339,7 @@ func renderTimeRuler(barWidth, windowStart, windowEnd int, anchor time.Time) str
 
 // normCompactCmd renders two stacked distribution bars over a dynamic window that
 // always covers the full actual day: expanded left if started before 08:15 and
-// expanded right if working past 16:00. A time ruler and a now-cursor are shown.
+// expanded right if working past 16:30. A time ruler and a now-cursor are shown.
 func normCompactCmd() error {
 	timer, err := load()
 	if err != nil {
@@ -1331,7 +1363,7 @@ func normCompactCmd() error {
 	// label (and its leading gray) is shown. Floor the start to the hour at or
 	// before the earlier of the normal start (08:15 -> shows 08:00 with ~15m gray)
 	// and the actual day start. Ceil the end to the hour at or after the later of
-	// 16:00 and the current time (so working past 16:00 expands the window right).
+	// 16:30 and the current time (so working past 16:30 expands the window right).
 	anchorHourMin := anchor.Hour()*60 + anchor.Minute()
 	floorHour := func(off int) int {
 		m := off + anchorHourMin
@@ -1366,7 +1398,7 @@ func normCompactCmd() error {
 
 	ruler := renderTimeRuler(barWidth, windowStart, windowEnd, anchor)
 
-	// Normal day ends at 16:00; past that there is no reference to compare to, so
+	// Normal day ends at 16:30; past that there is no reference to compare to, so
 	// render it as gray (none) rather than extending the work block.
 	normalBar := renderDistributionBar(barWidth, windowStart, windowEnd, func(o int) string {
 		if o >= normSpanMins {
@@ -1646,7 +1678,7 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 
 	// Full day ETA (only show when not yet complete)
 	if todayMins < fullDayMins {
-		const refFinishOffset = 465 // offset minutes when reference day completes 5h30m
+		const refFinishOffset = 495 // offset minutes when reference day completes 5h30m
 
 		var eta time.Time
 		var normDiff int

@@ -935,8 +935,8 @@ func TestRefActivityAtOffset(t *testing.T) {
 		{"mid first break", 55, activityBreak},
 		{"end of first break still break", 64, activityBreak},
 		{"second work block", 65, activityWork},
-		{"just before finish is work", 464, activityWork},
-		{"finish offset is work", 465, activityWork},
+		{"just before finish is work", 494, activityWork},
+		{"finish offset is work", 495, activityWork},
 		{"beyond finish extends work", 600, activityWork},
 	}
 	for _, tt := range tests {
