@@ -969,9 +969,14 @@ func normExampleCmd() error {
 		if workDelta > 0 {
 			// Work block
 			runningTotal += workDelta
-			fmt.Printf("%02d. [%s => %s] Work: %s (%s)\n",
+			pausedMins := duration - workDelta
+			pausedStr := ""
+			if pausedMins > 0 {
+				pausedStr = fmt.Sprintf(" |%02dm|", pausedMins)
+			}
+			fmt.Printf("%02d. [%s => %s] Work: %s%s (%s)\n",
 				lineNum, startTimeStr, endTimeStr,
-				minutesToHourMinuteStr(workDelta),
+				minutesToHourMinuteStr(workDelta), pausedStr,
 				minutesToHourMinuteStr(runningTotal))
 		} else {
 			// Break block
