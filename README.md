@@ -190,6 +190,7 @@ View your timer action history:
 ```bash
 wt log        # Show activity log with actual work times
 wt log info   # Same as above (default)
+wt log -c     # Color work green, break red, paused time yellow
 wt log debug  # Show command execution log with timestamps
 ```
 

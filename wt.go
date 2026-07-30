@@ -203,6 +203,13 @@ func main() {
 				Usage:       "Show log of timer activity",
 				ArgsUsage:   "[type]",
 				Description: "Defaults to info log. Use 'debug' to see command execution timestamps",
+				Flags: []cli.Flag{
+					&cli.BoolFlag{
+						Name:    "color",
+						Aliases: []string{"c"},
+						Usage:   "Color work green, break red, and paused time yellow",
+					},
+				},
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					timer, err := load()
 					if err != nil {
@@ -212,7 +219,7 @@ func main() {
 					if cmd.Args().Len() > 0 {
 						logType = cmd.Args().Get(0)
 					}
-					return historyCmd(timer, logType)
+					return historyCmd(timer, logType, cmd.Bool("color"))
 				},
 			},
 			{
@@ -1459,7 +1466,7 @@ func checkCmd(timer *Timer) error {
 		}
 	}
 
-	lines, err := buildInfoLogLines(timer)
+	lines, err := buildInfoLogLines(timer, false)
 	if err != nil {
 		return err
 	}
@@ -1471,7 +1478,14 @@ func checkCmd(timer *Timer) error {
 	return nil
 }
 
-func buildInfoLogLines(timer *Timer) ([]string, error) {
+func buildInfoLogLines(timer *Timer, color bool) ([]string, error) {
+	colorize := func(s, c string) string {
+		if !color {
+			return s
+		}
+		return c + s + colorReset
+	}
+
 	if len(timer.Timeline) == 0 && timer.Status == StatusStopped {
 		return []string{"No work cycles recorded."}, nil
 	}
@@ -1504,7 +1518,7 @@ func buildInfoLogLines(timer *Timer) ([]string, error) {
 
 			pausedStr := ""
 			if pausedMins > 0 {
-				pausedStr = fmt.Sprintf(" |%02dm|", pausedMins)
+				pausedStr = " " + colorize(fmt.Sprintf("|%02dm|", pausedMins), colorYellow)
 			}
 
 			// Calculate day indicator for midnight crossing
@@ -1519,8 +1533,8 @@ func buildInfoLogLines(timer *Timer) ([]string, error) {
 				dayIndicator = fmt.Sprintf("  [+%d day]", dayDiff)
 			}
 
-			lines = append(lines, fmt.Sprintf("%02d. [%s => %s] Work: %s%s (%s)%s",
-				lineNum, startTimeStr, endTimeStr, workStr, pausedStr, totalStr, dayIndicator))
+			lines = append(lines, fmt.Sprintf("%02d. [%s => %s] %s%s (%s)%s",
+				lineNum, startTimeStr, endTimeStr, colorize("Work: "+workStr, colorGreen), pausedStr, totalStr, dayIndicator))
 
 			currentTime = endTime
 		} else {
@@ -1531,8 +1545,8 @@ func buildInfoLogLines(timer *Timer) ([]string, error) {
 			endTimeStr := endTime.Format(TIME_ONLY_FORMAT)
 			breakStr := minutesToHourMinuteStr(breakMins)
 
-			lines = append(lines, fmt.Sprintf("%02d. [%s => %s] Break: %s",
-				lineNum, startTimeStr, endTimeStr, breakStr))
+			lines = append(lines, fmt.Sprintf("%02d. [%s => %s] %s",
+				lineNum, startTimeStr, endTimeStr, colorize("Break: "+breakStr, colorRed)))
 
 			currentTime = endTime
 		}
@@ -1563,7 +1577,7 @@ func buildInfoLogLines(timer *Timer) ([]string, error) {
 
 		pausedStr := ""
 		if totalPaused > 0 {
-			pausedStr = fmt.Sprintf(" |%02dm|", totalPaused)
+			pausedStr = " " + colorize(fmt.Sprintf("|%02dm|", totalPaused), colorYellow)
 		}
 
 		statusSuffix := ""
@@ -1571,8 +1585,8 @@ func buildInfoLogLines(timer *Timer) ([]string, error) {
 			statusSuffix = " (paused)"
 		}
 
-		lines = append(lines, fmt.Sprintf("%02d. [%s => .....] Work%s: %s%s (%s)%s",
-			lineNum, startTimeOnly, statusSuffix, currentStr, pausedStr, totalStr, dayIndicator))
+		lines = append(lines, fmt.Sprintf("%02d. [%s => .....] %s%s (%s)%s",
+			lineNum, startTimeOnly, colorize("Work"+statusSuffix+": "+currentStr, colorGreen), pausedStr, totalStr, dayIndicator))
 	}
 
 	if timer.Status == StatusStopped && len(timer.Timeline) > 0 {
@@ -1589,15 +1603,15 @@ func buildInfoLogLines(timer *Timer) ([]string, error) {
 				dayIndicator = fmt.Sprintf("  [+%d day]", dayDiff)
 			}
 
-			lines = append(lines, fmt.Sprintf("%02d. [%s => .....] Break: %s (%s)%s",
-				lineNum, startTimeOnly, breakStr, totalStr, dayIndicator))
+			lines = append(lines, fmt.Sprintf("%02d. [%s => .....] %s (%s)%s",
+				lineNum, startTimeOnly, colorize("Break: "+breakStr, colorRed), totalStr, dayIndicator))
 		}
 	}
 
 	return lines, nil
 }
 
-func historyCmd(timer *Timer, logType string) error {
+func historyCmd(timer *Timer, logType string, color bool) error {
 	validTypes := []string{"info", "debug"}
 	if logType != "" {
 		valid := false
@@ -1627,7 +1641,7 @@ func historyCmd(timer *Timer, logType string) error {
 		return nil
 	}
 
-	lines, err := buildInfoLogLines(timer)
+	lines, err := buildInfoLogLines(timer, color)
 	if err != nil {
 		return err
 	}
