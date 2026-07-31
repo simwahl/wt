@@ -5,9 +5,11 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -434,6 +436,15 @@ func minutesToDayHourMinuteStr(mins int) string {
 		return fmt.Sprintf("%dd %dh %dm", d, h, m)
 	}
 	return fmt.Sprintf("%dh %dm", h, m)
+}
+
+// formatThousands formats a non-negative int with comma thousands separators, e.g. 2512 -> "2,512".
+func formatThousands(n int) string {
+	s := strconv.Itoa(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
 }
 
 // streakDisplayStr returns a human-readable streak string like "0.5 days" or "2.9 days".
@@ -1011,8 +1022,8 @@ func normCmd() error {
 	}
 
 	anchor := refAnchorTime(now)
-	nowRefOffset := int(now.Sub(anchor).Minutes())       // offset from reference anchor (for Normal column)
-	nowActualOffset := int(now.Sub(dayStart).Minutes())   // offset from dayStart (for Actual column)
+	nowRefOffset := int(now.Sub(anchor).Minutes())          // offset from reference anchor (for Normal column)
+	nowActualOffset := int(now.Sub(dayStart).Minutes())     // offset from dayStart (for Actual column)
 	anchorToDayStart := int(dayStart.Sub(anchor).Minutes()) // how far dayStart is from anchor
 
 	// Build hour boundaries starting from the earlier of anchor and dayStart, aligned to clock hours
@@ -1562,7 +1573,9 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 	}
 
 	// Today's total work (current session + any prior sessions already committed to log)
-	const fullDayMins = 330 // 5h 30m
+	const fullDayMins = 330       // 5h 30m
+	const monthlySalaryKr = 60000 // hard-coded gross monthly salary used for the "earned today" counter
+	const taxRate = 0.30          // approximate tax rate used to show net earnings
 	todayDate := today.Format("2006-01-02")
 	todayMins := sessionMins
 	for _, entry := range game.WorkLog {
@@ -1680,6 +1693,11 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 	pctStr := fmt.Sprintf("  %s%d%%%s", pctColor, pct, colorReset)
 	sb.WriteString(fmt.Sprintf("  %s  %s / 5h 30m%s   %s+%.0f xp%s%s\n", todayBar, todayTimeStr,
 		pctStr, colorBold+colorGreen, todayXP, colorReset, todayRemaining))
+
+	dailyRateKr := monthlySalaryKr / 30.0 * (1 - taxRate)
+	earnedTodayKr := int(math.Round(float64(todayMins) / float64(fullDayMins) * dailyRateKr))
+	sb.WriteString("\n")
+	sb.WriteString(fmt.Sprintf("  💰 Net earnings today: %s%skr%s\n", colorBold+colorGreen, formatThousands(earnedTodayKr), colorReset))
 
 	// Full day ETA (only show when not yet complete)
 	if todayMins < fullDayMins {
