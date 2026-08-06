@@ -1546,6 +1546,15 @@ func etaCmd(targetHours float64, showBreakTime bool) error {
 
 // gameOverviewDisplay builds and returns the full RPG overview string.
 func gameOverviewDisplay(game *GameState, timer *Timer) string {
+	return gameDisplay(game, timer, false)
+}
+
+// gameMinimalDisplay builds and returns the minimal RPG overview string.
+func gameMinimalDisplay(game *GameState, timer *Timer) string {
+	return gameDisplay(game, timer, true)
+}
+
+func gameDisplay(game *GameState, timer *Timer, minimal bool) string {
 	var sb strings.Builder
 	const barWidth = 22
 
@@ -1597,47 +1606,60 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 	// 	available = availableConsumablesCount(game, allConsumables[0].ID)
 	// }
 
-	// Header
-	sb.WriteString(colorBold + "=== Work Timer RPG ===" + colorReset + "\n")
+	if !minimal {
+		// Header
+		sb.WriteString(colorBold + "=== Work Timer RPG ===" + colorReset + "\n")
 
-	// Level (one line, no bar)
-	sb.WriteString("\n")
-	xpRemaining := float64(xpForNext) - xpInLevel
-	sb.WriteString(fmt.Sprintf("  %sLVL %d%s   %.0f / %d xp   %s%.0f xp remaining%s\n",
-		colorBold+colorYellow, level, colorReset,
-		xpInLevel, xpForNext,
-		colorDim, xpRemaining, colorReset))
+		// Level (one line, no bar)
+		sb.WriteString("\n")
+		xpRemaining := float64(xpForNext) - xpInLevel
+		sb.WriteString(fmt.Sprintf("  %sLVL %d%s   %.0f / %d xp   %s%.0f xp remaining%s\n",
+			colorBold+colorYellow, level, colorReset,
+			xpInLevel, xpForNext,
+			colorDim, xpRemaining, colorReset))
+	} else {
+		sb.WriteString(colorBold + "=== Status ===" + colorReset + "\n\n")
+	}
 
 	// Streak
-	sb.WriteString("\n")
-	sb.WriteString(fmt.Sprintf("  %sStreak: %s%s   %s×%.2f XP%s\n",
-		colorBold+colorMagenta, streakStr, colorReset,
-		colorBold+colorGreen, multiplier, colorReset))
+	if !minimal {
+		sb.WriteString("\n")
+	}
+	if minimal {
+		sb.WriteString(fmt.Sprintf("  %sStreak: %s%s\n",
+			colorBold+colorMagenta, streakStr, colorReset))
+	} else {
+		sb.WriteString(fmt.Sprintf("  %sStreak: %s%s   %s×%.2f XP%s\n",
+			colorBold+colorMagenta, streakStr, colorReset,
+			colorBold+colorGreen, multiplier, colorReset))
+	}
 	streakBar := renderBar(streakBarFilled, streakBarTotal, barWidth)
 	sb.WriteString(fmt.Sprintf("  %s  %smilestone progress %d → %d%s\n",
 		streakBar, colorDim, prevGoal, nextGoal, colorReset))
-	sb.WriteString("\n")
 	bestStreak := game.LongestStreak
 	if streakDecimal > bestStreak {
 		bestStreak = streakDecimal
 	}
 	bestStreakTrunc := float64(int(bestStreak*10)) / 10
-	sb.WriteString(fmt.Sprintf("  %sBest streak: %.1f days%s\n", colorDim, bestStreakTrunc, colorReset))
+	sb.WriteString(fmt.Sprintf("\n  %sBest streak: %.1f days%s\n", colorDim, bestStreakTrunc, colorReset))
+	if !minimal {
+		sb.WriteString("\n")
 
-	// Count saves since last streak reset
-	lastReset := ""
-	if len(game.StreakResets) > 0 {
-		lastReset = game.StreakResets[len(game.StreakResets)-1]
-	}
-	savesThisStreak := 0
-	for _, s := range game.Saves {
-		if s >= lastReset {
-			savesThisStreak++
+		// Count saves since last streak reset
+		lastReset := ""
+		if len(game.StreakResets) > 0 {
+			lastReset = game.StreakResets[len(game.StreakResets)-1]
 		}
-	}
-	if savesThisStreak > 0 {
-		sb.WriteString(fmt.Sprintf("  %s🛡️ %d save%s this streak%s\n",
-			colorBold+colorGreen, savesThisStreak, pluralS(savesThisStreak), colorReset))
+		savesThisStreak := 0
+		for _, s := range game.Saves {
+			if s >= lastReset {
+				savesThisStreak++
+			}
+		}
+		if savesThisStreak > 0 {
+			sb.WriteString(fmt.Sprintf("  %s🛡️ %d save%s this streak%s\n",
+				colorBold+colorGreen, savesThisStreak, pluralS(savesThisStreak), colorReset))
+		}
 	}
 
 	// Current session (running/paused cycle)
@@ -1655,15 +1677,19 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 		} else if todayMins < fullDayMins {
 			cycleStr = colorRed + cycleStr + colorReset
 		}
-		currentCycleXP := float64(currentCycleMins) * multiplier
 		sb.WriteString("\n")
 		sb.WriteString("  Current Session\n")
-		sb.WriteString(fmt.Sprintf("  ⚔️  %s / %d min   %s+%.0f xp%s\n", cycleStr, sessionTarget,
-			colorBold+colorGreen, currentCycleXP, colorReset))
+		if minimal {
+			sb.WriteString(fmt.Sprintf("  %s / %d min\n", cycleStr, sessionTarget))
+		} else {
+			currentCycleXP := float64(currentCycleMins) * multiplier
+			sb.WriteString(fmt.Sprintf("  ⚔️  %s / %d min   %s+%.0f xp%s\n", cycleStr, sessionTarget,
+				colorBold+colorGreen, currentCycleXP, colorReset))
+		}
 	}
 
 	// Chain: count of consecutive 30-min segments; a work cycle <30min breaks the chain
-	if timer != nil {
+	if !minimal && timer != nil {
 		chainCount := calculateChain(timer)
 		if chainCount > 0 {
 			sb.WriteString(fmt.Sprintf("  🔥 Chain: %d\n", chainCount))
@@ -1678,7 +1704,6 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 	if todayMins >= fullDayMins {
 		todayTimeStr = colorBold + colorGreen + todayTimeStr + colorReset
 	}
-	todayXP := float64(todayMins) * multiplier
 	todayRemaining := ""
 	if todayMins < fullDayMins {
 		remainingStr := minutesToDayHourMinuteStr(fullDayMins - todayMins)
@@ -1691,13 +1716,19 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 		pctColor = colorBold + colorGreen
 	}
 	pctStr := fmt.Sprintf("  %s%d%%%s", pctColor, pct, colorReset)
-	sb.WriteString(fmt.Sprintf("  %s  %s / 5h 30m%s   %s+%.0f xp%s%s\n", todayBar, todayTimeStr,
-		pctStr, colorBold+colorGreen, todayXP, colorReset, todayRemaining))
+	if minimal {
+		sb.WriteString(fmt.Sprintf("  %s  %s / 5h 30m%s%s\n", todayBar, todayTimeStr,
+			pctStr, todayRemaining))
+	} else {
+		todayXP := float64(todayMins) * multiplier
+		sb.WriteString(fmt.Sprintf("  %s  %s / 5h 30m%s   %s+%.0f xp%s%s\n", todayBar, todayTimeStr,
+			pctStr, colorBold+colorGreen, todayXP, colorReset, todayRemaining))
 
-	dailyRateKr := monthlySalaryKr / 30.0 * (1 - taxRate)
-	earnedTodayKr := int(math.Round(float64(todayMins) / float64(fullDayMins) * dailyRateKr))
-	sb.WriteString("\n")
-	sb.WriteString(fmt.Sprintf("  💰 Net earnings today: %s%skr%s\n", colorBold+colorGreen, formatThousands(earnedTodayKr), colorReset))
+		dailyRateKr := monthlySalaryKr / 30.0 * (1 - taxRate)
+		earnedTodayKr := int(math.Round(float64(todayMins) / float64(fullDayMins) * dailyRateKr))
+		sb.WriteString("\n")
+		sb.WriteString(fmt.Sprintf("  💰 Net earnings today: %s%skr%s\n", colorBold+colorGreen, formatThousands(earnedTodayKr), colorReset))
+	}
 
 	// Full day ETA (only show when not yet complete)
 	if todayMins < fullDayMins {
@@ -1747,6 +1778,11 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 			}
 			sb.WriteString(fmt.Sprintf("\n  Flex: %s%s%s\n", flexColor, flexStr, colorReset))
 		}
+	}
+
+	if minimal {
+		sb.WriteString("\n")
+		return sb.String()
 	}
 
 	// Daily Quest
@@ -1820,7 +1856,7 @@ func gameOverviewDisplay(game *GameState, timer *Timer) string {
 }
 
 // gameCmd shows the RPG overview.
-func gameCmd() error {
+func gameCmd(minimal bool) error {
 	if !isGameEnabled() {
 		fmt.Println("Game not enabled. Run 'wt game enable' to get started.")
 		return nil
@@ -1831,9 +1867,13 @@ func gameCmd() error {
 	}
 	timer, _ := load()
 	questCountBefore := len(game.CompletedQuests)
-	fmt.Print(gameOverviewDisplay(game, timer))
+	if minimal {
+		fmt.Print(gameMinimalDisplay(game, timer))
+	} else {
+		fmt.Print(gameOverviewDisplay(game, timer))
+	}
 	// Save if new achievements shown or quest was just completed
-	needsSave := len(game.NewAchievements) > 0 || len(game.CompletedQuests) > questCountBefore
+	needsSave := !minimal && (len(game.NewAchievements) > 0 || len(game.CompletedQuests) > questCountBefore)
 	if needsSave {
 		game.NewAchievements = nil
 		return saveGame(game)

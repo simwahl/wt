@@ -364,9 +364,16 @@ func main() {
 					if cmd.Args().Len() > 0 {
 						return fmt.Errorf("unknown game command %q — try 'wt game help'", cmd.Args().Get(0))
 					}
-					return gameCmd()
+					return gameCmd(false)
 				},
 				Commands: []*cli.Command{
+					{
+						Name:  "minimal",
+						Usage: "Show a minimal game overview",
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							return gameCmd(true)
+						},
+					},
 					{
 						Name:  "enable",
 						Usage: "Enable the game and create game state file",

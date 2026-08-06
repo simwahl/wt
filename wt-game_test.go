@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -25,6 +26,60 @@ func newGame(resetDatetime string) *GameState {
 		Achievements:    []string{},
 		NewAchievements: []string{},
 		Consumables:     []GameConsumableEntry{},
+	}
+}
+
+func TestGameMinimalDisplay(t *testing.T) {
+	t.Setenv("WT_MOCK_TIME", "2026-08-06 12:00")
+	flexPath := t.TempDir() + "/Flex.md"
+	if err := os.WriteFile(flexPath, []byte("1.5h\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WT_FLEX_FILE", flexPath)
+
+	game := newGame("2026-08-01 08:00")
+	game.LongestStreak = 12
+	game.Saves = []string{"2026-08-05 10:00"}
+	game.NewAchievements = []string{"streak_3"}
+	timer := &Timer{
+		Status:   StatusRunning,
+		DayStart: "2026-08-06 08:15",
+	}
+
+	got := gameMinimalDisplay(game, timer)
+	for _, want := range []string{
+		"=== Status ===",
+		"Streak:",
+		"milestone progress",
+		"Best streak: 12.0 days",
+		"Current Session",
+		"Today",
+		"Finish ETA:",
+		"Break time:",
+		"Flex:",
+		"+1.5h",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("minimal output missing %q:\n%s", want, got)
+		}
+	}
+
+	for _, unwanted := range []string{
+		"XP",
+		"xp",
+		"⚔️",
+		"Work Timer RPG",
+		"LVL",
+		"save this streak",
+		"Chain:",
+		"Net earnings",
+		"Quest",
+		"Total today",
+		"ACHIEVEMENT",
+	} {
+		if strings.Contains(got, unwanted) {
+			t.Errorf("minimal output unexpectedly contains %q:\n%s", unwanted, got)
+		}
 	}
 }
 
