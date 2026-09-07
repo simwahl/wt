@@ -83,6 +83,33 @@ func TestGameMinimalDisplay(t *testing.T) {
 	}
 }
 
+func TestGameDisplaysMinuteOnlyFinishETADiff(t *testing.T) {
+	t.Setenv("WT_MOCK_TIME", "2026-08-06 10:00")
+	t.Setenv("WT_FLEX_FILE", t.TempDir()+"/Flex.md")
+
+	game := newGame("2026-08-01 08:00")
+	timer := &Timer{
+		Status:   StatusRunning,
+		DayStart: "2026-08-06 08:15",
+	}
+
+	displays := map[string]func(*GameState, *Timer) string{
+		"game":         gameOverviewDisplay,
+		"game minimal": gameMinimalDisplay,
+	}
+	for name, display := range displays {
+		t.Run(name, func(t *testing.T) {
+			got := display(game, timer)
+			if !strings.Contains(got, "-20m") {
+				t.Errorf("output missing minute-only ETA diff %q:\n%s", "-20m", got)
+			}
+			if strings.Contains(got, "-0h 20m") {
+				t.Errorf("output contains zero-hour ETA diff:\n%s", got)
+			}
+		})
+	}
+}
+
 // ----------------------------------------------------------------------------
 // streakDays
 // ----------------------------------------------------------------------------
@@ -623,6 +650,25 @@ func TestMinutesToDayHourMinuteStr(t *testing.T) {
 		got := minutesToDayHourMinuteStr(c.mins)
 		if got != c.want {
 			t.Errorf("minutesToDayHourMinuteStr(%d) = %q, want %q", c.mins, got, c.want)
+		}
+	}
+}
+
+func TestFormatFinishETADiff(t *testing.T) {
+	cases := []struct {
+		mins int
+		want string
+	}{
+		{0, "0m"},
+		{26, "26m"},
+		{59, "59m"},
+		{60, "1h 0m"},
+		{90, "1h 30m"},
+	}
+	for _, c := range cases {
+		got := formatFinishETADiff(c.mins)
+		if got != c.want {
+			t.Errorf("formatFinishETADiff(%d) = %q, want %q", c.mins, got, c.want)
 		}
 	}
 }

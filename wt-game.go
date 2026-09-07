@@ -438,6 +438,13 @@ func minutesToDayHourMinuteStr(mins int) string {
 	return fmt.Sprintf("%dh %dm", h, m)
 }
 
+func formatFinishETADiff(mins int) string {
+	if mins < 60 {
+		return fmt.Sprintf("%dm", mins)
+	}
+	return minutesToDayHourMinuteStr(mins)
+}
+
 // formatThousands formats a non-negative int with comma thousands separators, e.g. 2512 -> "2,512".
 func formatThousands(n int) string {
 	s := strconv.Itoa(n)
@@ -1758,7 +1765,7 @@ func gameDisplay(game *GameState, timer *Timer, minimal bool) string {
 				diffPrefix = "+"
 				diffColor = colorRed
 			}
-			diffStr := fmt.Sprintf("%s%s%s%s", diffColor, diffPrefix, minutesToDayHourMinuteStr(absDiff), colorReset)
+			diffStr := fmt.Sprintf("%s%s%s%s", diffColor, diffPrefix, formatFinishETADiff(absDiff), colorReset)
 
 			sb.WriteString(fmt.Sprintf("\n  Finish ETA:  %s  %s\n", eta.Format("15:04"), diffStr))
 			breakInETA := int(eta.Sub(today).Minutes()) - (fullDayMins - todayMins)
