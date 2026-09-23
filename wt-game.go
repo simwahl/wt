@@ -1,12 +1,8 @@
 package main
 
 import (
-	"crypto/sha256"
-	"encoding/binary"
 	"encoding/json"
 	"fmt"
-	"math"
-	"math/rand"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -30,39 +26,20 @@ const (
 
 // GameWorkLogEntry records work done on a specific day
 type GameWorkLogEntry struct {
-	Date      string `json:"date"`                 // "2026-05-04"
-	Minutes   int    `json:"minutes"`              // total work minutes for the session
-	StreakDay int    `json:"streak_day,omitempty"` // legacy field, present in old files only; used during migration
-}
-
-// GameConsumableEntry is one unit of a consumable reward.
-type GameConsumableEntry struct {
-	ID          string `json:"id"`           // matches ConsumableDef.ID
-	AwardedDate string `json:"awarded_date"` // "2026-01-20" — date this was earned
-	ConsumedAt  string `json:"consumed_at"`  // "2006-01-02 15:04" or "" if still available
+	Date    string `json:"date"`    // "2026-05-04"
+	Minutes int    `json:"minutes"` // total work minutes for the session
 }
 
 // GameState holds all RPG game state
 type GameState struct {
-	StreakResets    []string              `json:"streak_resets"` // append-only reset datetime history
-	WorkLog         []GameWorkLogEntry    `json:"work_log"`
-	Achievements    []string              `json:"achievements"`
-	NewAchievements []string              `json:"new_achievements"` // shown once, then cleared
-	Consumables     []GameConsumableEntry `json:"consumables"`
-	Saves           []string              `json:"saves"`            // append-only datetimes of willpower saves
-	LongestStreak   float64               `json:"longest_streak"`   // best ever streak in decimal days
-	CompletedQuests []CompletedQuestEntry `json:"completed_quests"` // daily quest completions
+	StreakResets    []string           `json:"streak_resets"` // append-only reset datetime history
+	WorkLog         []GameWorkLogEntry `json:"work_log"`
+	Achievements    []string           `json:"achievements"`
+	NewAchievements []string           `json:"new_achievements"` // shown once, then cleared
+	LongestStreak   float64            `json:"longest_streak"`   // best ever streak in decimal days
 	// Legacy fields — read for migration only, not written (omitempty)
 	StreakResetDate     string `json:"streak_reset_date,omitempty"`
 	StreakResetDatetime string `json:"streak_reset_datetime,omitempty"`
-	ConsumedCount       int    `json:"consumed_count,omitempty"`
-}
-
-// CompletedQuestEntry records a completed daily quest.
-type CompletedQuestEntry struct {
-	Date      string `json:"date"`       // "2026-05-04"
-	QuestType string `json:"quest_type"` // "long_cycle", "accumulate", "time_gated"
-	XPAwarded int    `json:"xp_awarded"`
 }
 
 // AchievementDef defines a single unlockable achievement.
@@ -91,181 +68,9 @@ var allAchievements = []AchievementDef{
 	{ID: "hours_1000", Label: "1000h Worked", HoursNeeded: 1000},
 }
 
-// ConsumableDef defines a type of consumable reward earned at a streak interval.
-type ConsumableDef struct {
-	ID          string // unique identifier used in GameConsumableEntry
-	Label       string // display name shown when consuming / in overview
-	StreakEvery int    // earn one every N streak days (e.g. 5 = day 5, 10, 15...)
-}
-
-var allConsumables = []ConsumableDef{
-	// Consumables system disabled for now
-	// {ID: "hobby_10min", Label: "10min Hobby Time", StreakEvery: 3},
-}
-
-// --- Daily Quest System ---
-
-// QuestType identifies the kind of daily quest.
-const (
-	QuestTypeLongCycle  = "long_cycle"
-	QuestTypeAccumulate = "accumulate"
-	QuestTypeTimeGated  = "time_gated"
-)
-
-// QuestDef defines one possible daily quest with static values.
-type QuestDef struct {
-	Type         string  // QuestTypeLongCycle, QuestTypeAccumulate, QuestTypeTimeGated
-	TargetMins   int     // target work minutes
-	DeadlineMins int     // time_gated only: deadline as minutes from midnight
-	RewardPct    float64 // XP reward as fraction of current level's XP requirement (0.0-1.0)
-}
-
-// allQuestDefs defines the pool of possible daily quests.
-var allQuestDefs = []QuestDef{
-	{Type: QuestTypeLongCycle, TargetMins: 60, RewardPct: 0.08},
-	{Type: QuestTypeLongCycle, TargetMins: 75, RewardPct: 0.10},
-	{Type: QuestTypeLongCycle, TargetMins: 90, RewardPct: 0.12},
-	{Type: QuestTypeAccumulate, TargetMins: 330, RewardPct: 0.08},
-	{Type: QuestTypeAccumulate, TargetMins: 360, RewardPct: 0.10},
-	{Type: QuestTypeAccumulate, TargetMins: 390, RewardPct: 0.12},
-	{Type: QuestTypeTimeGated, TargetMins: 90, DeadlineMins: 690, RewardPct: 0.10},
-	{Type: QuestTypeTimeGated, TargetMins: 120, DeadlineMins: 690, RewardPct: 0.12},
-	{Type: QuestTypeTimeGated, TargetMins: 150, DeadlineMins: 720, RewardPct: 0.15},
-}
-
-// DailyQuest is a fully instantiated quest for a specific day.
-type DailyQuest struct {
-	Type         string  // quest type
-	TargetMins   int     // target work minutes
-	DeadlineMins int     // time_gated only: deadline as minutes from midnight
-	RewardPct    float64 // XP reward as fraction of current level requirement
-}
-
 // formatFlexHours formats a flex balance as e.g. "+1.5h", "-2h", "0h".
 func formatFlexHours(val float64) string {
 	return formatFlexBalance(val) + "h"
-}
-
-// generateDailyQuest produces a deterministic quest for a given date string ("2006-01-02").
-func generateDailyQuest(date string) DailyQuest {
-	h := sha256.Sum256([]byte("wt-quest-" + date))
-	seed := int64(binary.LittleEndian.Uint64(h[:8]))
-	rng := rand.New(rand.NewSource(seed))
-
-	def := allQuestDefs[rng.Intn(len(allQuestDefs))]
-
-	return DailyQuest{
-		Type:         def.Type,
-		TargetMins:   def.TargetMins,
-		DeadlineMins: def.DeadlineMins,
-		RewardPct:    def.RewardPct,
-	}
-}
-
-// questRewardXP computes the actual XP reward for a quest based on the current level.
-func questRewardXP(q DailyQuest, totalXP float64) int {
-	level, _, _ := computeLevel(totalXP)
-	needed := xpRequiredForLevel(level)
-	reward := int(float64(needed)*q.RewardPct+5) / 10 * 10 // round to nearest 10
-	if reward < 10 {
-		reward = 10
-	}
-	return reward
-}
-
-// questDescription returns a human-readable description of a daily quest.
-func questDescription(q DailyQuest) string {
-	switch q.Type {
-	case QuestTypeLongCycle:
-		return fmt.Sprintf("Complete one work cycle of %s+", minutesToHourMinuteStr(q.TargetMins))
-	case QuestTypeAccumulate:
-		return fmt.Sprintf("Accumulate %s worked today", minutesToHourMinuteStr(q.TargetMins))
-	case QuestTypeTimeGated:
-		h := q.DeadlineMins / 60
-		m := q.DeadlineMins % 60
-		return fmt.Sprintf("Complete %s work before %02d:%02d", minutesToHourMinuteStr(q.TargetMins), h, m)
-	}
-	return "Unknown quest"
-}
-
-// questProgress returns current progress and whether the quest is completed.
-func questProgress(q DailyQuest, timer *Timer, game *GameState) (current int, target int, completed bool) {
-	target = q.TargetMins
-	today := getCurrentTime().Format("2006-01-02")
-
-	switch q.Type {
-	case QuestTypeLongCycle:
-		// Find the longest single work cycle today
-		maxCycle := 0
-		if timer != nil {
-			for _, entry := range timer.Timeline {
-				if entry.Type == "work" && entry.Minutes > maxCycle {
-					maxCycle = entry.Minutes
-				}
-			}
-			// Check current running/paused cycle
-			if timer.Status == StatusRunning || timer.Status == StatusPaused {
-				currentMins := calculateCurrentMinutes(timer)
-				if currentMins > maxCycle {
-					maxCycle = currentMins
-				}
-			}
-		}
-		current = maxCycle
-
-	case QuestTypeAccumulate:
-		// Total work minutes today (committed log + current session)
-		current = 0
-		if timer != nil {
-			current = totalWorkMinutesFromTimer(timer)
-		}
-		// Add any previously committed minutes for today from the game log
-		for _, entry := range game.WorkLog {
-			if entry.Date == today {
-				current += entry.Minutes
-				break
-			}
-		}
-
-	case QuestTypeTimeGated:
-		// Work completed before the deadline time today
-		if timer != nil && timer.DayStart != "" {
-			dayStart, err := parseTime(timer.DayStart)
-			if err == nil {
-				deadlineTime := time.Date(dayStart.Year(), dayStart.Month(), dayStart.Day(),
-					q.DeadlineMins/60, q.DeadlineMins%60, 0, 0, time.Local)
-				now := getCurrentTime()
-
-				for _, entry := range timer.Timeline {
-					if entry.Type == "work" {
-						current += entry.Minutes
-					}
-				}
-				// Add current cycle work if still before deadline
-				if (timer.Status == StatusRunning || timer.Status == StatusPaused) && now.Before(deadlineTime) {
-					current += calculateCurrentMinutes(timer)
-				}
-				// Cap at what was achievable before deadline
-				if now.After(deadlineTime) {
-					// All timeline entries happened — use total timeline work
-					// (current cycle was already excluded if after deadline)
-				}
-			}
-		}
-	}
-
-	completed = current >= target
-	return
-}
-
-// isQuestCompletedToday checks if a quest was already completed and recorded for the given date.
-func isQuestCompletedToday(game *GameState, date string) bool {
-	for _, q := range game.CompletedQuests {
-		if q.Date == date {
-			return true
-		}
-	}
-	return false
 }
 
 // streakMilestones are the named streak goal checkpoints.
@@ -311,6 +116,9 @@ func loadGame() (*GameState, error) {
 		return nil, err
 	}
 	migrateGameState(&game)
+	if err := validateStreakResets(&game); err != nil {
+		return nil, err
+	}
 	return &game, nil
 }
 
@@ -327,29 +135,21 @@ func migrateGameState(game *GameState) {
 		game.StreakResetDatetime = ""
 		game.StreakResetDate = ""
 	}
-	// Migrate ConsumedCount + legacy work log StreakDay entries → Consumables array
-	if len(game.Consumables) == 0 && len(allConsumables) > 0 {
-		c := allConsumables[0]
-		consumed := 0
-		for _, entry := range game.WorkLog {
-			if c.StreakEvery > 0 && entry.StreakDay > 0 && entry.StreakDay%c.StreakEvery == 0 {
-				consumedAt := ""
-				if consumed < game.ConsumedCount {
-					consumedAt = entry.Date + " 00:00"
-					consumed++
-				}
-				game.Consumables = append(game.Consumables, GameConsumableEntry{
-					ID:          c.ID,
-					AwardedDate: entry.Date,
-					ConsumedAt:  consumedAt,
-				})
-			}
+}
+
+func validateStreakResets(game *GameState) error {
+	var previous time.Time
+	for i, reset := range game.StreakResets {
+		current, err := time.ParseInLocation(DT_FORMAT, reset, time.Local)
+		if err != nil {
+			return fmt.Errorf("invalid streak reset %d (%q): %w", i+1, reset, err)
 		}
-		game.ConsumedCount = 0
+		if !previous.IsZero() && current.Before(previous) {
+			return fmt.Errorf("streak reset %d (%q) is before the prior reset", i+1, reset)
+		}
+		previous = current
 	}
-	if game.Consumables == nil {
-		game.Consumables = []GameConsumableEntry{}
-	}
+	return nil
 }
 
 // saveGame writes game state to disk.
@@ -397,36 +197,6 @@ func streakHoursElapsed(game *GameState, reference time.Time) int {
 	return int(elapsed.Hours()) % 24
 }
 
-// streakDayForDate returns the streak day count for a past date string ("2006-01-02"),
-// finding the applicable reset from the StreakResets history.
-func streakDayForDate(game *GameState, dateStr string) int {
-	// Find the latest reset whose date portion is <= dateStr
-	resetStr := ""
-	for _, r := range game.StreakResets {
-		if len(r) >= 10 && r[:10] <= dateStr {
-			resetStr = r
-		}
-	}
-	if resetStr == "" {
-		return 0
-	}
-	t, err := time.ParseInLocation(DT_FORMAT, resetStr, time.Local)
-	if err != nil {
-		return 0
-	}
-	ref, err := time.ParseInLocation("2006-01-02", dateStr, time.Local)
-	if err != nil {
-		return 0
-	}
-	resetMidnight := time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, time.Local)
-	refMidnight := time.Date(ref.Year(), ref.Month(), ref.Day(), 0, 0, 0, 0, time.Local)
-	days := int(refMidnight.Sub(resetMidnight).Hours() / 24)
-	if days < 0 {
-		return 0
-	}
-	return days
-}
-
 // minutesToDayHourMinuteStr formats minutes as "Xd Yh Zm" (omits days if 0, omits minutes if 0).
 func minutesToDayHourMinuteStr(mins int) string {
 	d := mins / (60 * 24)
@@ -462,32 +232,61 @@ func streakDisplayStr(days, hours int) string {
 	return fmt.Sprintf("%.1f days", value)
 }
 
-// streakMultiplier returns the XP multiplier for a given streak day count.
-// Scales linearly from 1.01× at day 1 to 2.00× at day 100, capped there.
-func streakMultiplier(days int) float64 {
-	return 1.0 + float64(min(days, 100))*0.01
-}
-
 // xpRequiredForLevel returns XP needed to go from level N to N+1.
-// Level 1→2 = 300 XP, 2→3 = 305 XP, N→N+1 = 300+(N-1)*5 XP.
+// Level N→N+1 requires N XP.
 func xpRequiredForLevel(level int) int {
-	return 300 + (level-1)*5
+	return level
 }
 
 // computeLevel returns level, XP within the current level, and XP needed for next level.
-func computeLevel(totalXP float64) (level int, xpInLevel float64, xpForNext int) {
+func computeLevel(totalXP int) (level int, xpInLevel int, xpForNext int) {
 	level = 1
-	accumulated := 0.0
+	accumulated := 0
 	for {
-		needed := float64(xpRequiredForLevel(level))
+		needed := xpRequiredForLevel(level)
 		if accumulated+needed > totalXP {
 			xpInLevel = totalXP - accumulated
-			xpForNext = int(needed)
+			xpForNext = needed
 			return
 		}
 		accumulated += needed
 		level++
 	}
+}
+
+// streakXPForDays returns XP for complete streak days, starting at day 10.
+// Days 10-19 grant 1 XP each, 20-29 grant 2, and so on.
+func streakXPForDays(days int) int {
+	total := 0
+	for day := 10; day <= days; day++ {
+		total += day / 10
+	}
+	return total
+}
+
+// totalStreakXP totals every completed reset interval through reference.
+func totalStreakXP(game *GameState, reference time.Time) int {
+	total := 0
+	for i, reset := range game.StreakResets {
+		start, err := time.ParseInLocation(DT_FORMAT, reset, time.Local)
+		if err != nil {
+			continue
+		}
+
+		end := reference
+		if i+1 < len(game.StreakResets) {
+			next, err := time.ParseInLocation(DT_FORMAT, game.StreakResets[i+1], time.Local)
+			if err != nil {
+				continue
+			}
+			end = next
+		}
+
+		if end.After(start) {
+			total += streakXPForDays(int(end.Sub(start).Hours() / 24))
+		}
+	}
+	return total
 }
 
 // totalWorkMinutesFromTimer returns total work minutes from the timer, including any live session.
@@ -558,59 +357,6 @@ func breakTimeCmd(targetStr string, targetWorkMins int) error {
 	return nil
 }
 
-// calculateChain returns the current chain count: consecutive 30-min segments.
-// A completed work cycle <30min resets the chain to 0.
-func calculateChain(timer *Timer) int {
-	const chainUnit = 30
-	chainCount := 0
-	for _, entry := range timer.Timeline {
-		if entry.Type == "work" {
-			if entry.Minutes >= chainUnit {
-				chainCount += entry.Minutes / chainUnit
-			} else {
-				chainCount = 0
-			}
-		}
-	}
-	if timer.Status == StatusRunning || timer.Status == StatusPaused {
-		currentMins := calculateCurrentMinutes(timer)
-		chainCount += currentMins / chainUnit
-	}
-	return chainCount
-}
-
-// totalXPFromGame computes total XP from all work log entries, quest bonuses, plus the current live timer session.
-func totalXPFromGame(game *GameState, timer *Timer) float64 {
-	total := 0.0
-	for _, entry := range game.WorkLog {
-		day := streakDayForDate(game, entry.Date)
-		total += float64(entry.Minutes) * streakMultiplier(day)
-	}
-	for _, q := range game.CompletedQuests {
-		total += float64(q.XPAwarded)
-	}
-	if timer != nil && timer.DayStart != "" {
-		dayStart, err := parseTime(timer.DayStart)
-		if err == nil {
-			currentMins := totalWorkMinutesFromTimer(timer)
-			currentStreakDay := streakDays(game, dayStart)
-			total += float64(currentMins) * streakMultiplier(currentStreakDay)
-		}
-	}
-	return total
-}
-
-// availableConsumablesCount returns the number of unconsumed consumables with the given ID.
-func availableConsumablesCount(game *GameState, id string) int {
-	count := 0
-	for _, c := range game.Consumables {
-		if c.ID == id && c.ConsumedAt == "" {
-			count++
-		}
-	}
-	return count
-}
-
 // hasAchievement returns true if the achievement ID is already unlocked.
 func hasAchievement(game *GameState, id string) bool {
 	for _, a := range game.Achievements {
@@ -648,9 +394,8 @@ func checkAndUnlockAchievements(game *GameState, longestStreak float64, totalMin
 	return newlyUnlocked
 }
 
-// applySessionToGame records sessionMins worked on dayStart into game,
-// awards consumables if this is the first session on a milestone streak day,
-// updates the longest streak, checks achievements, and returns any newly
+// applySessionToGame records sessionMins worked on dayStart, updates the longest
+// streak, checks achievements, and returns any newly
 // unlocked achievement IDs. It does not perform any I/O.
 func applySessionToGame(game *GameState, sessionMins int, dayStart time.Time) []string {
 	dateStr := dayStart.Format("2006-01-02")
@@ -658,12 +403,11 @@ func applySessionToGame(game *GameState, sessionMins int, dayStart time.Time) []
 	streakHoursVal := streakHoursElapsed(game, dayStart)
 	streakDecimal := float64(streakDay) + float64(streakHoursVal)/24.0
 
-	// Upsert work log entry for this date (streak day is derived from reset history, not stored)
+	// Upsert work log entry for this date.
 	found := false
 	for i, entry := range game.WorkLog {
 		if entry.Date == dateStr {
 			game.WorkLog[i].Minutes += sessionMins
-			game.WorkLog[i].StreakDay = 0 // clear legacy field on upsert
 			found = true
 			break
 		}
@@ -673,31 +417,6 @@ func applySessionToGame(game *GameState, sessionMins int, dayStart time.Time) []
 			Date:    dateStr,
 			Minutes: sessionMins,
 		})
-	}
-
-	// Award consumables on the first session of a milestone streak day
-	// Use date-based streak day (midnight-to-midnight) so that the streak day
-	// is stable regardless of the exact dayStart time within that date.
-	dateStreakDay := streakDayForDate(game, dateStr)
-	if dateStreakDay > 0 {
-		for _, c := range allConsumables {
-			if c.StreakEvery > 0 && dateStreakDay%c.StreakEvery == 0 {
-				alreadyAwarded := false
-				for _, existing := range game.Consumables {
-					if existing.ID == c.ID && existing.AwardedDate == dateStr {
-						alreadyAwarded = true
-						break
-					}
-				}
-				if !alreadyAwarded {
-					game.Consumables = append(game.Consumables, GameConsumableEntry{
-						ID:          c.ID,
-						AwardedDate: dateStr,
-						ConsumedAt:  "",
-					})
-				}
-			}
-		}
 	}
 
 	// Update longest streak
@@ -1565,14 +1284,9 @@ func gameDisplay(game *GameState, timer *Timer, minimal bool) string {
 	var sb strings.Builder
 	const barWidth = 22
 
-	// Compute values
-	totalXP := totalXPFromGame(game, timer)
-	level, xpInLevel, xpForNext := computeLevel(totalXP)
-
 	today := getCurrentTime()
 	days := streakDays(game, today)
 	hours := streakHoursElapsed(game, today)
-	multiplier := streakMultiplier(days)
 	streakStr := streakDisplayStr(days, hours)
 
 	nextGoal := nextStreakGoal(days)
@@ -1589,9 +1303,7 @@ func gameDisplay(game *GameState, timer *Timer, minimal bool) string {
 	}
 
 	// Today's total work (current session + any prior sessions already committed to log)
-	const fullDayMins = 330       // 5h 30m
-	const monthlySalaryKr = 60000 // hard-coded gross monthly salary used for the "earned today" counter
-	const taxRate = 0.30          // approximate tax rate used to show net earnings
+	const fullDayMins = 330 // 5h 30m
 	todayDate := today.Format("2006-01-02")
 	todayMins := sessionMins
 	for _, entry := range game.WorkLog {
@@ -1601,44 +1313,28 @@ func gameDisplay(game *GameState, timer *Timer, minimal bool) string {
 		}
 	}
 
-	// Total all-time minutes (log + current session)
-	totalAllTimeMins := sessionMins
-	for _, entry := range game.WorkLog {
-		totalAllTimeMins += entry.Minutes
-	}
-
-	// Consumables display disabled for now
-	// available := 0
-	// if len(allConsumables) > 0 {
-	// 	available = availableConsumablesCount(game, allConsumables[0].ID)
-	// }
-
+	sb.WriteString(colorBold + "=== Status ===" + colorReset + "\n\n")
 	if !minimal {
-		// Header
-		sb.WriteString(colorBold + "=== Work Timer RPG ===" + colorReset + "\n")
-
 		// Level (one line, no bar)
-		sb.WriteString("\n")
-		xpRemaining := float64(xpForNext) - xpInLevel
-		sb.WriteString(fmt.Sprintf("  %sLVL %d%s   %.0f / %d xp   %s%.0f xp remaining%s\n",
+		totalXP := totalStreakXP(game, today)
+		level, xpInLevel, xpForNext := computeLevel(totalXP)
+		xpRemaining := xpForNext - xpInLevel
+		sb.WriteString(fmt.Sprintf("  %sLVL %d%s   %d / %d xp   %s%d xp remaining%s\n",
 			colorBold+colorYellow, level, colorReset,
 			xpInLevel, xpForNext,
 			colorDim, xpRemaining, colorReset))
-	} else {
-		sb.WriteString(colorBold + "=== Status ===" + colorReset + "\n\n")
 	}
 
 	// Streak
 	if !minimal {
 		sb.WriteString("\n")
-	}
-	if minimal {
+		currentStreakXP := streakXPForDays(days)
+		sb.WriteString(fmt.Sprintf("  %sStreak: %s%s  %s+%dxp%s\n",
+			colorBold+colorMagenta, streakStr, colorReset,
+			colorBold+colorGreen, currentStreakXP, colorReset))
+	} else {
 		sb.WriteString(fmt.Sprintf("  %sStreak: %s%s\n",
 			colorBold+colorMagenta, streakStr, colorReset))
-	} else {
-		sb.WriteString(fmt.Sprintf("  %sStreak: %s%s   %s×%.2f XP%s\n",
-			colorBold+colorMagenta, streakStr, colorReset,
-			colorBold+colorGreen, multiplier, colorReset))
 	}
 	streakBar := renderBar(streakBarFilled, streakBarTotal, barWidth)
 	sb.WriteString(fmt.Sprintf("  %s  %smilestone progress %d → %d%s\n",
@@ -1649,26 +1345,6 @@ func gameDisplay(game *GameState, timer *Timer, minimal bool) string {
 	}
 	bestStreakTrunc := float64(int(bestStreak*10)) / 10
 	sb.WriteString(fmt.Sprintf("\n  %sBest streak: %.1f days%s\n", colorDim, bestStreakTrunc, colorReset))
-	if !minimal {
-		sb.WriteString("\n")
-
-		// Count saves since last streak reset
-		lastReset := ""
-		if len(game.StreakResets) > 0 {
-			lastReset = game.StreakResets[len(game.StreakResets)-1]
-		}
-		savesThisStreak := 0
-		for _, s := range game.Saves {
-			if s >= lastReset {
-				savesThisStreak++
-			}
-		}
-		if savesThisStreak > 0 {
-			sb.WriteString(fmt.Sprintf("  %s🛡️ %d save%s this streak%s\n",
-				colorBold+colorGreen, savesThisStreak, pluralS(savesThisStreak), colorReset))
-		}
-	}
-
 	// Current session (running/paused cycle)
 	if timer != nil && (timer.Status == StatusRunning || timer.Status == StatusPaused) {
 		currentCycleMins := calculateCurrentMinutes(timer)
@@ -1686,21 +1362,7 @@ func gameDisplay(game *GameState, timer *Timer, minimal bool) string {
 		}
 		sb.WriteString("\n")
 		sb.WriteString("  Current Session\n")
-		if minimal {
-			sb.WriteString(fmt.Sprintf("  %s / %d min\n", cycleStr, sessionTarget))
-		} else {
-			currentCycleXP := float64(currentCycleMins) * multiplier
-			sb.WriteString(fmt.Sprintf("  ⚔️  %s / %d min   %s+%.0f xp%s\n", cycleStr, sessionTarget,
-				colorBold+colorGreen, currentCycleXP, colorReset))
-		}
-	}
-
-	// Chain: count of consecutive 30-min segments; a work cycle <30min breaks the chain
-	if !minimal && timer != nil {
-		chainCount := calculateChain(timer)
-		if chainCount > 0 {
-			sb.WriteString(fmt.Sprintf("  🔥 Chain: %d\n", chainCount))
-		}
+		sb.WriteString(fmt.Sprintf("  %s / %d min\n", cycleStr, sessionTarget))
 	}
 
 	// Today's work towards full day
@@ -1727,14 +1389,16 @@ func gameDisplay(game *GameState, timer *Timer, minimal bool) string {
 		sb.WriteString(fmt.Sprintf("  %s  %s / 5h 30m%s%s\n", todayBar, todayTimeStr,
 			pctStr, todayRemaining))
 	} else {
-		todayXP := float64(todayMins) * multiplier
-		sb.WriteString(fmt.Sprintf("  %s  %s / 5h 30m%s   %s+%.0f xp%s%s\n", todayBar, todayTimeStr,
-			pctStr, colorBold+colorGreen, todayXP, colorReset, todayRemaining))
+		sb.WriteString(fmt.Sprintf("  %s  %s / 5h 30m%s%s\n", todayBar, todayTimeStr,
+			pctStr, todayRemaining))
 
-		dailyRateKr := monthlySalaryKr / 30.0 * (1 - taxRate)
-		earnedTodayKr := int(math.Round(float64(todayMins) / float64(fullDayMins) * dailyRateKr))
-		sb.WriteString("\n")
-		sb.WriteString(fmt.Sprintf("  💰 Net earnings today: %s%skr%s\n", colorBold+colorGreen, formatThousands(earnedTodayKr), colorReset))
+		// Net earnings are intentionally disabled in the game overview.
+		// const monthlySalaryKr = 60000
+		// const taxRate = 0.30
+		// dailyRateKr := monthlySalaryKr / 30.0 * (1 - taxRate)
+		// earnedTodayKr := int(math.Round(float64(todayMins) / float64(fullDayMins) * dailyRateKr))
+		// sb.WriteString(fmt.Sprintf("\n  💰 Net earnings today: %s%skr%s\n",
+		// 	colorBold+colorGreen, formatThousands(earnedTodayKr), colorReset))
 	}
 
 	// Full day ETA (only show when not yet complete)
@@ -1792,63 +1456,6 @@ func gameDisplay(game *GameState, timer *Timer, minimal bool) string {
 		return sb.String()
 	}
 
-	// Daily Quest
-	quest := generateDailyQuest(todayDate)
-	questCompleted := isQuestCompletedToday(game, todayDate)
-	sb.WriteString("\n")
-	sb.WriteString("  Quest\n")
-	if questCompleted {
-		// Find the XP awarded
-		questXP := 0
-		for _, q := range game.CompletedQuests {
-			if q.Date == todayDate {
-				questXP = q.XPAwarded
-				break
-			}
-		}
-		sb.WriteString(fmt.Sprintf("  %s  %s✓ +%d xp%s\n",
-			questDescription(quest), colorBold+colorGreen, questXP, colorReset))
-	} else {
-		_, _, completed := questProgress(quest, timer, game)
-		rewardXP := questRewardXP(quest, totalXP)
-		if completed {
-			// Just completed — record it
-			game.CompletedQuests = append(game.CompletedQuests, CompletedQuestEntry{
-				Date:      todayDate,
-				QuestType: quest.Type,
-				XPAwarded: rewardXP,
-			})
-			sb.WriteString(fmt.Sprintf("  %s  %s✓ +%d xp%s\n",
-				questDescription(quest), colorBold+colorGreen, rewardXP, colorReset))
-		} else {
-			sb.WriteString(fmt.Sprintf("  %s   %s+%d xp%s\n",
-				questDescription(quest), colorDim, rewardXP, colorReset))
-		}
-	}
-
-	// Total Today XP
-	todayTotalXP := float64(todayMins) * multiplier
-	// Add quest XP if completed today
-	for _, q := range game.CompletedQuests {
-		if q.Date == todayDate {
-			todayTotalXP += float64(q.XPAwarded)
-			break
-		}
-	}
-	if todayMins > 0 || todayTotalXP > 0 {
-		sb.WriteString("\n")
-		sb.WriteString(fmt.Sprintf("  Total today:  %s+%.0f xp%s\n",
-			colorBold+colorGreen, todayTotalXP, colorReset))
-	}
-
-	// Consumables display disabled for now
-	// if available > 0 {
-	// 	sb.WriteString("\n")
-	// 	sb.WriteString("  Consumables\n")
-	// 	sb.WriteString(fmt.Sprintf("  %s  ×%d available   %s[wt game consume]%s\n",
-	// 		allConsumables[0].Label, available, colorDim, colorReset))
-	// }
-
 	// New achievement unlocks (shown once, then cleared)
 	if len(game.NewAchievements) > 0 {
 		sb.WriteString("\n")
@@ -1873,14 +1480,13 @@ func gameCmd(minimal bool) error {
 		return err
 	}
 	timer, _ := load()
-	questCountBefore := len(game.CompletedQuests)
 	if minimal {
 		fmt.Print(gameMinimalDisplay(game, timer))
 	} else {
 		fmt.Print(gameOverviewDisplay(game, timer))
 	}
-	// Save if new achievements shown or quest was just completed
-	needsSave := !minimal && (len(game.NewAchievements) > 0 || len(game.CompletedQuests) > questCountBefore)
+	// Save after new achievements are shown so they display only once.
+	needsSave := !minimal && len(game.NewAchievements) > 0
 	if needsSave {
 		game.NewAchievements = nil
 		return saveGame(game)
@@ -1900,7 +1506,6 @@ func gameEnableCmd() error {
 		WorkLog:         []GameWorkLogEntry{},
 		Achievements:    []string{},
 		NewAchievements: []string{},
-		Consumables:     []GameConsumableEntry{},
 		LongestStreak:   0,
 	}
 	if err := saveGame(game); err != nil {
@@ -1929,119 +1534,6 @@ func gameStreakResetCmd() error {
 		return err
 	}
 	fmt.Printf("Streak reset. %s0 days%s starting now (%s).\n", colorBold+colorMagenta, colorReset, now)
-	return nil
-}
-
-// gameConsumeCmd lists available consumables, or consumes one by 1-based number.
-func gameConsumeCmd(arg string) error {
-	if !isGameEnabled() {
-		fmt.Println("Game not enabled. Run 'wt game enable' to get started.")
-		return nil
-	}
-	game, err := loadGame()
-	if err != nil {
-		return err
-	}
-
-	type consumableStatus struct {
-		def       ConsumableDef
-		available int
-	}
-	statuses := make([]consumableStatus, len(allConsumables))
-	for i, c := range allConsumables {
-		statuses[i] = consumableStatus{def: c, available: availableConsumablesCount(game, c.ID)}
-	}
-
-	// If an index arg was given, consume that item
-	if arg != "" {
-		idx := 0
-		if _, err := fmt.Sscanf(arg, "%d", &idx); err != nil || idx < 1 || idx > len(allConsumables) {
-			return fmt.Errorf("invalid consumable number %q — use 'wt game consume' to see the list", arg)
-		}
-		idx-- // convert to 0-based
-		if statuses[idx].available <= 0 {
-			fmt.Printf("No %s available.\n", statuses[idx].def.Label)
-			return nil
-		}
-		now := getCurrentTime().Format(DT_FORMAT)
-		for j, cons := range game.Consumables {
-			if cons.ID == allConsumables[idx].ID && cons.ConsumedAt == "" {
-				game.Consumables[j].ConsumedAt = now
-				break
-			}
-		}
-		if err := saveGame(game); err != nil {
-			return err
-		}
-		remaining := statuses[idx].available - 1
-		fmt.Printf("%s🎮 Enjoy your %s!%s  (%d remaining)\n",
-			colorBold+colorYellow, statuses[idx].def.Label, colorReset, remaining)
-		return nil
-	}
-
-	// No arg: list available consumables
-	anyAvailable := false
-	for _, s := range statuses {
-		if s.available > 0 {
-			anyAvailable = true
-			break
-		}
-	}
-	if !anyAvailable {
-		fmt.Println("No available consumables.")
-	} else {
-		fmt.Println(colorBold + "Available:" + colorReset)
-		for i, s := range statuses {
-			if s.available > 0 {
-				fmt.Printf("  %d. %s%s%s  ×%d\n", i+1, colorBold+colorYellow, s.def.Label, colorReset, s.available)
-			}
-		}
-		fmt.Println()
-		fmt.Printf("%sUse 'wt game consume <number>' to consume.%s\n", colorDim, colorReset)
-	}
-	fmt.Println()
-	fmt.Println(colorBold + "Earnable:" + colorReset)
-	for _, s := range statuses {
-		fmt.Printf("  %s  — every %d streak days\n", s.def.Label, s.def.StreakEvery)
-	}
-	return nil
-}
-
-// pluralS returns "s" if n != 1, otherwise "".
-func pluralS(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
-}
-
-// gameSavedCmd records a willpower save and reports today's count.
-func gameSavedCmd() error {
-	if !isGameEnabled() {
-		fmt.Println("Game not enabled. Run 'wt game enable' to get started.")
-		return nil
-	}
-	game, err := loadGame()
-	if err != nil {
-		return err
-	}
-	now := getCurrentTime()
-	game.Saves = append(game.Saves, now.Format(DT_FORMAT))
-	if err := saveGame(game); err != nil {
-		return err
-	}
-	lastReset := ""
-	if len(game.StreakResets) > 0 {
-		lastReset = game.StreakResets[len(game.StreakResets)-1]
-	}
-	count := 0
-	for _, s := range game.Saves {
-		if s >= lastReset {
-			count++
-		}
-	}
-	fmt.Printf("%s🛡️️ Save recorded!%s  %d save%s this streak — willpower preserved.\n",
-		colorBold+colorGreen, colorReset, count, pluralS(count))
 	return nil
 }
 

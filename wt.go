@@ -359,7 +359,7 @@ func main() {
 			},
 			{
 				Name:  "game",
-				Usage: "RPG gamification — track XP, levels, and streaks",
+				Usage: "RPG gamification — track streak-based levels and achievements",
 				Action: func(ctx context.Context, cmd *cli.Command) error {
 					if cmd.Args().Len() > 0 {
 						return fmt.Errorf("unknown game command %q — try 'wt game help'", cmd.Args().Get(0))
@@ -392,22 +392,6 @@ func main() {
 									return gameStreakResetCmd()
 								},
 							},
-						},
-					},
-					// Consumables system disabled for now
-					// {
-					// 	Name:    "consume",
-					// 	Aliases: []string{"c"},
-					// 	Usage:   "List or consume an available consumable reward",
-					// 	Action: func(ctx context.Context, cmd *cli.Command) error {
-					// 		return gameConsumeCmd(cmd.Args().Get(0))
-					// 	},
-					// },
-					{
-						Name:  "saved",
-						Usage: "Record a willpower save — resisted the urge to do something else",
-						Action: func(ctx context.Context, cmd *cli.Command) error {
-							return gameSavedCmd()
 						},
 					},
 					{

@@ -4,7 +4,7 @@
 WT is a CLI work timer for tracking pomodoro-style work/break cycles. Implemented in Go (`wt.go`) using the `urfave/cli/v3` framework.
 
 ## Game System (`wt-game.go`)
-The game layer is an optional RPG gamification system inspired by apps like **Habitica**, **Focus Quest: Pomodoro ADHD app**, and **Forest**. It adds streaks, XP, levels, achievements, consumable rewards, and daily quests on top of the core timer — turning focused work into tangible progression without changing the timer mechanics themselves. By default, game state lives in `~/Documents/wtg.json`, separate from the timer data.
+The game layer is an optional RPG gamification system inspired by apps like **Habitica**, **Focus Quest: Pomodoro ADHD app**, and **Forest**. It adds streaks, streak-derived XP and levels, and achievements on top of the core timer without changing timer mechanics. XP is calculated from the append-only streak reset history: completed days 10-19 earn 1 XP per day, days 20-29 earn 2 XP per day, and each later ten-day band increases the reward by one. Streak days are complete 24-hour periods from their reset timestamps, not calendar days. By default, game state lives in `~/Documents/wtg.json`, separate from the timer data.
 
 For isolated development and tests, set `WT_GAME_PATH` to override the game file location.
 
