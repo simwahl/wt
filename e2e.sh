@@ -1487,6 +1487,47 @@ check_output "flex rejects non-0.5 multiple" "$expected_error2" "$actual_error2"
 actual_balance=$(HOME="$FAKE_HOME" $WT_CMD flex)
 check_output "flex balance unchanged after errors" "0h" "$actual_balance"
 
+###############################################################################
+# Test 42: Flex log command
+###############################################################################
+print_test "42" "Flex log command"
+setup_test
+
+FAKE_HOME="$WT_ROOT/fake-home"
+mkdir -p "$FAKE_HOME/Documents/Obsidian/Work/Private"
+printf -- '0\n' > "$FAKE_HOME/Documents/Obsidian/Work/Private/Flex.md"
+
+actual_empty=$(HOME="$FAKE_HOME" $WT_CMD flex log)
+check_output "flex log with no changes" "No flex changes logged" "$actual_empty"
+
+mock_time "2026-01-20 09:00"
+HOME="$FAKE_HOME" $WT_CMD flex add 1 > /dev/null
+mock_time "2026-01-21 09:00"
+HOME="$FAKE_HOME" $WT_CMD flex sub 0.5 > /dev/null
+mock_time "2026-01-22 09:00"
+HOME="$FAKE_HOME" $WT_CMD flex add 2 > /dev/null
+
+actual_log=$(HOME="$FAKE_HOME" $WT_CMD flex log)
+expected_log="2026-01-20 +1
+2026-01-21 -0.5
+2026-01-22 +2"
+check_output "flex log shows all changes newest last" "$expected_log" "$actual_log"
+
+actual_log_n=$(HOME="$FAKE_HOME" $WT_CMD flex log -n 2)
+expected_log_n="2026-01-21 -0.5
+2026-01-22 +2"
+check_output "flex log -n limits to latest changes" "$expected_log_n" "$actual_log_n"
+
+actual_log_big=$(HOME="$FAKE_HOME" $WT_CMD flex log -n 10)
+check_output "flex log -n larger than log shows all" "$expected_log" "$actual_log_big"
+
+actual_log_c=$(HOME="$FAKE_HOME" $WT_CMD flex log -c -n 2)
+expected_log_c=$(printf '2026-01-21 \033[31m-0.5\033[0m\n2026-01-22 \033[32m+2\033[0m')
+check_output "flex log -c colors only the amounts" "$expected_log_c" "$actual_log_c"
+
+actual_log_err=$(HOME="$FAKE_HOME" $WT_CMD flex log -n 0 2>&1 || true)
+check_output "flex log rejects non-positive -n" "-n must be a positive number" "$actual_log_err"
+
 echo ""
 echo "=========================================="
 echo "Test Results"

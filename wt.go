@@ -513,6 +513,31 @@ func main() {
 							return flexSubCmd(cmd.Args().Get(0))
 						},
 					},
+					{
+						Name:  "log",
+						Usage: "Show log of flex changes (newest last)",
+						Flags: []cli.Flag{
+							&cli.IntFlag{
+								Name:  "n",
+								Usage: "Only show the N latest changes",
+							},
+							&cli.BoolFlag{
+								Name:    "color",
+								Aliases: []string{"c"},
+								Usage:   "Color added hours green and subtracted hours red",
+							},
+						},
+						Action: func(ctx context.Context, cmd *cli.Command) error {
+							limit := 0
+							if cmd.IsSet("n") {
+								limit = int(cmd.Int("n"))
+								if limit <= 0 {
+									return fmt.Errorf("-n must be a positive number")
+								}
+							}
+							return flexLogCmd(limit, cmd.Bool("color"))
+						},
+					},
 				},
 			},
 			{
@@ -2480,6 +2505,69 @@ func flexCmd() error {
 
 	fmt.Printf("%sh\n", formatFlexBalance(balance))
 	return nil
+}
+
+// flexLogCmd prints changelog entries with the newest last. A limit of 0 prints all entries.
+func flexLogCmd(limit int, color bool) error {
+	path, err := flexFilePath()
+	if err != nil {
+		return err
+	}
+
+	_, changelog, err := readFlexFile(path)
+	if err != nil {
+		return fmt.Errorf("cannot read flex file: %w", err)
+	}
+
+	var entries []string
+	for _, line := range changelog {
+		if strings.TrimSpace(line) != "" {
+			entries = append(entries, line)
+		}
+	}
+
+	if len(entries) == 0 {
+		fmt.Println("No flex changes logged")
+		return nil
+	}
+
+	if limit > 0 && limit < len(entries) {
+		entries = entries[:limit]
+	}
+	// The file stores newest first; print oldest first so the newest ends up at the bottom.
+	for i := len(entries) - 1; i >= 0; i-- {
+		if color {
+			fmt.Println(colorizeFlexEntry(entries[i]))
+		} else {
+			fmt.Println(entries[i])
+		}
+	}
+	return nil
+}
+
+// colorizeFlexEntry colors the amount in a "YYYY-MM-DD +X" entry: green for +, red for -.
+// Lines that don't match that shape are returned unchanged.
+func colorizeFlexEntry(line string) string {
+	sep := strings.IndexByte(line, ' ')
+	if sep < 0 {
+		return line
+	}
+	rest := line[sep+1:]
+	end := strings.IndexByte(rest, ' ')
+	if end < 0 {
+		end = len(rest)
+	}
+	amount := rest[:end]
+	var c string
+	switch {
+	case strings.HasPrefix(amount, "+"):
+		c = colorGreen
+	case strings.HasPrefix(amount, "-"):
+		c = colorRed
+	default:
+		return line
+	}
+	return line[:sep+1] + c + amount + colorReset + rest[end:]
 }
 
 func flexAddCmd(amountStr string) error {
