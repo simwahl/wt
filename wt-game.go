@@ -208,11 +208,21 @@ func minutesToDayHourMinuteStr(mins int) string {
 	return fmt.Sprintf("%dh %dm", h, m)
 }
 
-func formatFinishETADiff(mins int) string {
+// formatNormDiffDuration formats an unsigned diff: minutes only under an hour, otherwise "Xh Ym".
+func formatNormDiffDuration(mins int) string {
 	if mins < 60 {
 		return fmt.Sprintf("%dm", mins)
 	}
 	return minutesToDayHourMinuteStr(mins)
+}
+
+// formatNormDiff formats a norm diff (actual - expected work) with the wt norm sign
+// convention: "-" when ahead or even (can leave earlier), "+" when behind.
+func formatNormDiff(diff int) string {
+	if diff < 0 {
+		return "+" + formatNormDiffDuration(-diff)
+	}
+	return "-" + formatNormDiffDuration(diff)
 }
 
 // formatThousands formats a non-negative int with comma thousands separators, e.g. 2512 -> "2,512".
@@ -1171,12 +1181,12 @@ func normCompactCmd() error {
 	var diffColored string
 	if diffMins > 0 {
 		// ahead of schedule: minus sign, green
-		diffColored = fmt.Sprintf("%s-%dm%s", colorGreen, diffMins, colorReset)
+		diffColored = colorGreen + formatNormDiff(diffMins) + colorReset
 	} else if diffMins == 0 {
 		diffColored = colorDim + "-" + colorReset
 	} else {
 		// behind schedule: plus sign, red
-		diffColored = fmt.Sprintf("%s+%dm%s", colorRed, -diffMins, colorReset)
+		diffColored = colorRed + formatNormDiff(diffMins) + colorReset
 	}
 
 	// Align the diff under the current-time position in the bar. The bar cells start
@@ -1415,21 +1425,11 @@ func gameDisplay(game *GameState, timer *Timer, minimal bool) string {
 			eta = anchor.Add(time.Duration(refFinishOffset-normDiff) * time.Minute)
 		}
 		if !eta.IsZero() {
-			absDiff := normDiff
-			if absDiff < 0 {
-				absDiff = -absDiff
-			}
-
-			diffPrefix := "-"
 			diffColor := colorBold + colorGreen
-			if normDiff > 0 {
-				// Ahead of schedule should be shown as negative (same convention as wt norm).
-				diffPrefix = "-"
-			} else if normDiff < 0 {
-				diffPrefix = "+"
+			if normDiff < 0 {
 				diffColor = colorRed
 			}
-			diffStr := fmt.Sprintf("%s%s%s%s", diffColor, diffPrefix, formatFinishETADiff(absDiff), colorReset)
+			diffStr := diffColor + formatNormDiff(normDiff) + colorReset
 
 			sb.WriteString(fmt.Sprintf("\n  Finish ETA:  %s  %s\n", eta.Format("15:04"), diffStr))
 			breakInETA := int(eta.Sub(today).Minutes()) - (fullDayMins - todayMins)

@@ -576,7 +576,7 @@ func TestMinutesToDayHourMinuteStr(t *testing.T) {
 	}
 }
 
-func TestFormatFinishETADiff(t *testing.T) {
+func TestFormatNormDiffDuration(t *testing.T) {
 	cases := []struct {
 		mins int
 		want string
@@ -588,9 +588,32 @@ func TestFormatFinishETADiff(t *testing.T) {
 		{90, "1h 30m"},
 	}
 	for _, c := range cases {
-		got := formatFinishETADiff(c.mins)
+		got := formatNormDiffDuration(c.mins)
 		if got != c.want {
-			t.Errorf("formatFinishETADiff(%d) = %q, want %q", c.mins, got, c.want)
+			t.Errorf("formatNormDiffDuration(%d) = %q, want %q", c.mins, got, c.want)
+		}
+	}
+}
+
+func TestFormatNormDiff(t *testing.T) {
+	cases := []struct {
+		diff int
+		want string
+	}{
+		{0, "-0m"},
+		{26, "-26m"},
+		{59, "-59m"},
+		{60, "-1h 0m"},
+		{95, "-1h 35m"},
+		{-26, "+26m"},
+		{-59, "+59m"},
+		{-60, "+1h 0m"},
+		{-125, "+2h 5m"},
+	}
+	for _, c := range cases {
+		got := formatNormDiff(c.diff)
+		if got != c.want {
+			t.Errorf("formatNormDiff(%d) = %q, want %q", c.diff, got, c.want)
 		}
 	}
 }
