@@ -274,6 +274,17 @@ func streakXPForDays(days int) int {
 	return total
 }
 
+// daysUntilStreakXP returns completed streak days needed to earn remaining XP.
+func daysUntilStreakXP(days, remainingXP int) int {
+	daysLeft := 0
+	for remainingXP > 0 {
+		days++
+		remainingXP -= days / 10
+		daysLeft++
+	}
+	return daysLeft
+}
+
 // totalStreakXP totals every completed reset interval through reference.
 func totalStreakXP(game *GameState, reference time.Time) int {
 	total := 0
@@ -1329,10 +1340,11 @@ func gameDisplay(game *GameState, timer *Timer, minimal bool) string {
 		totalXP := totalStreakXP(game, today)
 		level, xpInLevel, xpForNext := computeLevel(totalXP)
 		xpRemaining := xpForNext - xpInLevel
-		sb.WriteString(fmt.Sprintf("  %sLVL %d%s   %d / %d xp   %s%d xp remaining%s\n",
+		daysLeft := daysUntilStreakXP(days, xpRemaining)
+		sb.WriteString(fmt.Sprintf("  %sLVL %d%s   %d/%d xp   %s%d xp remaining (%d days)%s\n",
 			colorBold+colorYellow, level, colorReset,
 			xpInLevel, xpForNext,
-			colorDim, xpRemaining, colorReset))
+			colorDim, xpRemaining, daysLeft, colorReset))
 	}
 
 	// Streak

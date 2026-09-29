@@ -91,7 +91,7 @@ func TestGameOverviewUsesOnlyStreakXP(t *testing.T) {
 	}}
 	got := gameOverviewDisplay(game, nil)
 
-	for _, want := range []string{"LVL 8", "4 / 8 xp", "4 xp remaining", "+1xp"} {
+	for _, want := range []string{"LVL 8", "4/8 xp", "4 xp remaining (4 days)", "+1xp"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("overview missing %q:\n%s", want, got)
 		}
@@ -261,6 +261,25 @@ func TestStreakXPForDays(t *testing.T) {
 		got := streakXPForDays(c.days)
 		if got != c.want {
 			t.Errorf("streakXPForDays(%d) = %d, want %d", c.days, got, c.want)
+		}
+	}
+}
+
+func TestDaysUntilStreakXP(t *testing.T) {
+	cases := []struct {
+		days, remainingXP, want int
+	}{
+		{9, 1, 1},
+		{16, 6, 5},
+		{29, 2, 1},
+		{29, 6, 2},
+		{30, 7, 3},
+		{30, 0, 0},
+	}
+	for _, c := range cases {
+		got := daysUntilStreakXP(c.days, c.remainingXP)
+		if got != c.want {
+			t.Errorf("daysUntilStreakXP(%d, %d) = %d, want %d", c.days, c.remainingXP, got, c.want)
 		}
 	}
 }
